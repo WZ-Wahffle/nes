@@ -15,6 +15,7 @@
 #define VIEWPORT_HEIGHT 480
 #define WINDOW_WIDTH VIEWPORT_WIDTH * 2
 #define WINDOW_HEIGHT VIEWPORT_HEIGHT * 2
+#define CYCLES_PER_LINE 113
 
 uint32_t *framebuffer = NULL;
 static ppu_t *this;
@@ -153,7 +154,7 @@ void *ui_thread(void *_) {
         for (uint32_t i = 0; i < 512; i++) {
             fetch_tile(i);
         }
-        this->sprite_0 = false;
+
         this->joy1_mirror =
             (IsGamepadButtonDown(joy1_idx, GAMEPAD_BUTTON_RIGHT_FACE_RIGHT)
              << 0) |
@@ -191,88 +192,94 @@ void *ui_thread(void *_) {
             (IsGamepadButtonDown(1, GAMEPAD_BUTTON_LEFT_FACE_RIGHT) << 7) |
             ((GetGamepadAxisMovement(1, GAMEPAD_AXIS_LEFT_X) > 0.5) << 7);
 
-        this->vblank = false;
-
         for (uint32_t i = 0; i < VIEWPORT_WIDTH * VIEWPORT_HEIGHT; i++) {
             framebuffer[i] = palette_lookup[this->memory.palette_ram[0]];
         }
 
-        // background drawing
+        this->sprite_0 = false;
+        get_cpu_handle()->remaining_cycles += CYCLES_PER_LINE;
+        this->vblank = false;
 
-        for (uint8_t y = 0; y < 60; y++) {
-            for (uint8_t x = 0; x < 64; x++) {
+        for (uint16_t y = 0; y < VIEWPORT_HEIGHT; y++) {
+            // background drawing
+            for (uint16_t x = 0; x < VIEWPORT_WIDTH; x++) {
                 uint8_t nametable_idx;
-                if(x < 32 && y < 30) nametable_idx = 0;
-                if(x >= 32 && y < 30) nametable_idx = 1;
-                if(x < 32 && y >= 30) nametable_idx = 2;
-                if(x >= 32 && y >= 30) nametable_idx = 3;
+                if (x < VIEWPORT_WIDTH / 2 && y < VIEWPORT_HEIGHT / 2)
+                    nametable_idx = 0;
+                if (x >= VIEWPORT_WIDTH / 2 && y < VIEWPORT_HEIGHT / 2)
+                    nametable_idx = 1;
+                if (x < VIEWPORT_WIDTH / 2 && y >= VIEWPORT_HEIGHT / 2)
+                    nametable_idx = 2;
+                if (x >= VIEWPORT_WIDTH / 2 && y >= VIEWPORT_HEIGHT / 2)
+                    nametable_idx = 3;
 
                 // pattern for current tile
-                uint8_t *pattern =
-                    fetch_background_pattern(x % 32, y % 30, nametable_idx);
+                uint8_t *pattern = fetch_background_pattern(
+                    (x / 8) % 32, (y / 8) % 30, nametable_idx);
 
-                for (uint8_t pattern_x = 0; pattern_x < 8; pattern_x++) {
-                    for (uint8_t pattern_y = 0; pattern_y < 8; pattern_y++) {
-                        uint8_t palette_idx = fetch_palette_index(
-                            (x % 32) * 8 + pattern_x, (y % 30) * 8 + pattern_y, 0);
+                uint8_t palette_idx =
+                    fetch_palette_index((x % 256), (y % 240), nametable_idx);
 
-                        if (pattern[pattern_y * 8 + pattern_x] != 0) {
-                            framebuffer[((x % 32) * 8 + pattern_x +
-                                         256 * (nametable_idx % 2)) +
-                                        ((y % 30) * 8 + pattern_y +
-                                         240 * (nametable_idx / 2)) *
-                                            VIEWPORT_WIDTH] = palette_lookup
-                                [this->memory.palette_ram
-                                     [palette_idx * 4 +
-                                      pattern[pattern_y * 8 + pattern_x]]];
-                            sprite_0_hit_buffer[(y % 30) * 8 + pattern_y]
-                                               [(x % 32) * 8 + pattern_x] = true;
-                        }
-                    }
+                if (pattern[(x % 8) + 8 * (y % 8)] != 0) {
+                    framebuffer[x + y * VIEWPORT_WIDTH] =
+                        palette_lookup[this->memory.palette_ram
+                                           [palette_idx * 4 +
+                                            pattern[(x % 8) + 8 * (y % 8)]]];
+                    sprite_0_hit_buffer[y][x] = true;
                 }
             }
-        }
 
-        // sprites
-        for (uint8_t i = 0; i < 64; i++) {
-            uint16_t base_x = ((this->oam[i].x_pos + this->scroll_x) & 0x1ff) +
-                              256 * (this->base_nametable_address % 2);
-            uint16_t base_y =
-                ((this->oam[i].y_pos - 1 + this->scroll_y) & 0x1ff) +
-                240 * (this->base_nametable_address / 2);
-            bool in_front = this->oam[i].attributes & 0x20;
-            bool flip_x = this->oam[i].attributes & 0x40;
-            bool flip_y = this->oam[i].attributes & 0x80;
-            uint8_t palette_idx = this->oam[i].attributes & 0x3;
-            uint8_t *pattern = (uint8_t *)
-                pattern_buffer[(this->sprite_pattern_table_address ? 256 : 0) +
-                               this->oam[i].tile_index];
+            // sprite drawing
+            for (uint8_t i = 0; i < 64; i++) {
+                if (this->oam[i].y_pos <= y && this->oam[i].y_pos + 8 > y) {
+                    if (this->large_sprites) {
+                        printf("aaa\n");
+                        break;
+                    }
+                    bool flip_x = this->oam[i].attributes & 0x40;
+                    bool flip_y = this->oam[i].attributes & 0x80;
+                    uint8_t palette_idx = this->oam[i].attributes & 0x3;
+                    bool in_front = this->oam[i].attributes & 0x20;
+                    uint8_t tile_y = y - (this->oam[i].y_pos);
+                    uint8_t *pattern = pattern_buffer
+                        [(this->sprite_pattern_table_address ? 256 : 0) +
+                         this->oam[i].tile_index]
+                        [flip_y ? (7 - ((tile_y) % 8)) : ((tile_y) % 8)];
 
-            if (!this->large_sprites) {
-                for (uint8_t y = 0; y < 8; y++) {
                     for (uint8_t x = 0; x < 8; x++) {
-                        uint8_t proper_x = flip_x ? 7 - x : x;
-                        uint8_t proper_y = flip_y ? 7 - y : y;
-                        if (sprite_0_hit_buffer[(base_y + y) % VIEWPORT_HEIGHT]
-                                               [(base_x +
-                                                 x % VIEWPORT_WIDTH)] &&
-                            pattern[proper_y * 8 + proper_x] != 0)
-                            this->sprite_0 = true;
-                        if ((!sprite_0_hit_buffer[base_y + y][base_x + x] ||
+                        uint16_t tile_x = flip_x ? (7 - x) : (x);
+                        if (i == 0 &&
+                            sprite_0_hit_buffer
+                                [y][((this->oam[i].x_pos + this->scroll_x + x) &
+                                     0x1ff) +
+                                    256 * (this->base_nametable_address % 2)] &&
+                            pattern[tile_x] != 0) {
+                            {
+                                this->sprite_0 = true;
+                            }
+                        }
+
+                        if ((!sprite_0_hit_buffer
+                                 [y]
+                                 [((this->oam[i].x_pos + this->scroll_x + x) &
+                                   0x1ff) +
+                                  256 * (this->base_nametable_address % 2)] ||
                              !in_front) &&
-                            pattern[proper_y * 8 + proper_x] != 0) {
-                            framebuffer[(x + base_x) +
-                                        VIEWPORT_WIDTH * (y + base_y)] =
-                                palette_lookup
-                                    [this->memory.palette_ram
-                                         [16 + palette_idx * 4 +
-                                          pattern[proper_y * 8 + proper_x]]];
+                            pattern[tile_x] != 0) {
+                            framebuffer[VIEWPORT_WIDTH * y +
+                                        ((this->oam[i].x_pos + this->scroll_x +
+                                          x) &
+                                         0x1ff) +
+                                        256 * (this->base_nametable_address %
+                                               2)] = palette_lookup
+                                [this->memory.palette_ram[16 + palette_idx * 4 +
+                                                          pattern[tile_x]]];
                         }
                     }
                 }
-            } else {
-                printf("aaa\n");
             }
+
+            get_cpu_handle()->remaining_cycles += CYCLES_PER_LINE;
         }
 
         for (uint16_t x = 0; x < VIEWPORT_WIDTH; x++) {
@@ -285,9 +292,11 @@ void *ui_thread(void *_) {
 
         DrawTexturePro(
             texture,
-            (Rectangle){
-                this->scroll_x + 256 * (this->base_nametable_address % 2),
-                this->scroll_y + (uint8_t)(this->base_nametable_address / 2), 256, 240},
+            (Rectangle){this->scroll_x +
+                            256 * (this->base_nametable_address % 2),
+                        this->scroll_y +
+                            256 * (uint8_t)(this->base_nametable_address / 2),
+                        256, 240},
             (Rectangle){0.0f, 0.0f, WINDOW_WIDTH, WINDOW_HEIGHT},
             (Vector2){0.0f, 0.0f}, 0.0f, WHITE);
 
@@ -300,6 +309,8 @@ void *ui_thread(void *_) {
 
         DrawFPS(0, 0);
         this->vblank = true;
+
+        get_cpu_handle()->remaining_cycles += CYCLES_PER_LINE * 21;
         EndDrawing();
     }
 

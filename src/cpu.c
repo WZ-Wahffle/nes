@@ -614,10 +614,6 @@ static void run(void) {
             }
 
             this->remaining_cycles -= cycle_lookup[opcode];
-            if (this->remaining_cycles <= 0) {
-                usleep(50);
-                this->remaining_cycles += 1.79 * 50;
-            }
 
             if (this->pc == this->run_until) {
                 this->run = false;
