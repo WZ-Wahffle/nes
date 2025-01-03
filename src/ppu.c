@@ -11,10 +11,10 @@
 #include <stdlib.h>
 #include <unistd.h>
 
-#define VIEWPORT_WIDTH 512
-#define VIEWPORT_HEIGHT 480
-#define WINDOW_WIDTH VIEWPORT_WIDTH * 2
-#define WINDOW_HEIGHT VIEWPORT_HEIGHT * 2
+#define VIEWPORT_WIDTH 256
+#define VIEWPORT_HEIGHT 240
+#define WINDOW_WIDTH VIEWPORT_WIDTH * 4
+#define WINDOW_HEIGHT VIEWPORT_HEIGHT * 4
 #define CYCLES_PER_LINE 113
 
 uint32_t *framebuffer = NULL;
@@ -193,7 +193,7 @@ void *ui_thread(void *_) {
             ((GetGamepadAxisMovement(1, GAMEPAD_AXIS_LEFT_X) > 0.5) << 7);
 
         for (uint32_t i = 0; i < VIEWPORT_WIDTH * VIEWPORT_HEIGHT; i++) {
-            framebuffer[i] = palette_lookup[this->memory.palette_ram[0]];
+            framebuffer[i] = palette_lookup[this->memory.palette_ram[16]];
         }
 
         this->sprite_0 = false;
@@ -202,35 +202,33 @@ void *ui_thread(void *_) {
 
         for (uint16_t y = 0; y < VIEWPORT_HEIGHT; y++) {
             // background drawing
+            uint16_t scrolled_y = (y + this->scroll_y +
+                                   256 * (this->base_nametable_address / 2)) %
+                                  480;
             for (uint16_t x = 0; x < VIEWPORT_WIDTH; x++) {
-                uint8_t nametable_idx;
-                if (x < VIEWPORT_WIDTH / 2 && y < VIEWPORT_HEIGHT / 2)
-                    nametable_idx = 0;
-                if (x >= VIEWPORT_WIDTH / 2 && y < VIEWPORT_HEIGHT / 2)
-                    nametable_idx = 1;
-                if (x < VIEWPORT_WIDTH / 2 && y >= VIEWPORT_HEIGHT / 2)
-                    nametable_idx = 2;
-                if (x >= VIEWPORT_WIDTH / 2 && y >= VIEWPORT_HEIGHT / 2)
-                    nametable_idx = 3;
-
+                uint16_t scrolled_x =
+                    (x + this->scroll_x +
+                     256 * (this->base_nametable_address % 2)) %
+                    512;
                 // pattern for current tile
-                uint8_t *pattern = fetch_background_pattern(
-                    (x / 8) % 32, (y / 8) % 30, nametable_idx);
+                uint8_t *pattern =
+                    fetch_background_pattern(scrolled_x, scrolled_y);
 
                 uint8_t palette_idx =
-                    fetch_palette_index((x % 256), (y % 240), nametable_idx);
+                    fetch_palette_index(scrolled_x, scrolled_y);
 
-                if (pattern[(x % 8) + 8 * (y % 8)] != 0) {
+                if (pattern[(scrolled_x % 8) + 8 * (scrolled_y % 8)] != 0) {
                     framebuffer[x + y * VIEWPORT_WIDTH] =
                         palette_lookup[this->memory.palette_ram
                                            [palette_idx * 4 +
-                                            pattern[(x % 8) + 8 * (y % 8)]]];
+                                            pattern[(scrolled_x % 8) +
+                                                    8 * (scrolled_y % 8)]]];
                     sprite_0_hit_buffer[y][x] = true;
                 }
             }
 
             // sprite drawing
-            for (uint8_t i = 0; i < 64; i++) {
+            for (int8_t i = 63; i >= 0; i--) {
                 if (this->oam[i].y_pos <= y && this->oam[i].y_pos + 8 > y) {
                     if (this->large_sprites) {
                         printf("aaa\n");
@@ -244,36 +242,26 @@ void *ui_thread(void *_) {
                     uint8_t *pattern = pattern_buffer
                         [(this->sprite_pattern_table_address ? 256 : 0) +
                          this->oam[i].tile_index]
-                        [flip_y ? (7 - ((tile_y) % 8)) : ((tile_y) % 8)];
+                        [flip_y ? (7 - (tile_y % 8)) : (tile_y % 8)];
 
                     for (uint8_t x = 0; x < 8; x++) {
                         uint16_t tile_x = flip_x ? (7 - x) : (x);
                         if (i == 0 &&
-                            sprite_0_hit_buffer
-                                [y][((this->oam[i].x_pos + this->scroll_x + x) &
-                                     0x1ff) +
-                                    256 * (this->base_nametable_address % 2)] &&
+                            sprite_0_hit_buffer[y][(this->oam[i].x_pos + x) %
+                                                   256] &&
                             pattern[tile_x] != 0) {
-                            {
-                                this->sprite_0 = true;
-                            }
+                            this->sprite_0 = true;
                         }
 
-                        if ((!sprite_0_hit_buffer
-                                 [y]
-                                 [((this->oam[i].x_pos + this->scroll_x + x) &
-                                   0x1ff) +
-                                  256 * (this->base_nametable_address % 2)] ||
+                        if ((!sprite_0_hit_buffer[y][(this->oam[i].x_pos + x) %
+                                                     256] ||
                              !in_front) &&
                             pattern[tile_x] != 0) {
                             framebuffer[VIEWPORT_WIDTH * y +
-                                        ((this->oam[i].x_pos + this->scroll_x +
-                                          x) &
-                                         0x1ff) +
-                                        256 * (this->base_nametable_address %
-                                               2)] = palette_lookup
-                                [this->memory.palette_ram[16 + palette_idx * 4 +
-                                                          pattern[tile_x]]];
+                                        (this->oam[i].x_pos + x) % 256] =
+                                palette_lookup[this->memory.palette_ram
+                                                   [16 + palette_idx * 4 +
+                                                    pattern[tile_x]]];
                         }
                     }
                 }
@@ -290,15 +278,9 @@ void *ui_thread(void *_) {
 
         UpdateTexture(texture, framebuffer);
 
-        DrawTexturePro(
-            texture,
-            (Rectangle){this->scroll_x +
-                            256 * (this->base_nametable_address % 2),
-                        this->scroll_y +
-                            256 * (uint8_t)(this->base_nametable_address / 2),
-                        256, 240},
-            (Rectangle){0.0f, 0.0f, WINDOW_WIDTH, WINDOW_HEIGHT},
-            (Vector2){0.0f, 0.0f}, 0.0f, WHITE);
+        DrawTexturePro(texture, (Rectangle){0, 0, 256, 240},
+                       (Rectangle){0.0f, 0.0f, WINDOW_WIDTH, WINDOW_HEIGHT},
+                       (Vector2){0.0f, 0.0f}, 0.0f, WHITE);
 
         if (IsKeyPressed(KEY_TAB)) {
             show_debug = !show_debug;
@@ -324,7 +306,36 @@ void *ui_thread(void *_) {
     return NULL;
 }
 
-uint8_t fetch_palette_index(uint8_t x, uint8_t y, uint8_t nametable_idx) {
+uint8_t fetch_palette_index(uint16_t x, uint16_t y) {
+    if (x < VIEWPORT_WIDTH && y < VIEWPORT_HEIGHT)
+        return fetch_palette_index_with_nametable(x, y, 0);
+    if (x >= VIEWPORT_WIDTH && y < VIEWPORT_HEIGHT)
+        return fetch_palette_index_with_nametable(x % VIEWPORT_WIDTH, y, 1);
+    if (x < VIEWPORT_WIDTH && y >= VIEWPORT_HEIGHT)
+        return fetch_palette_index_with_nametable(x, y % VIEWPORT_HEIGHT, 2);
+
+    return fetch_palette_index_with_nametable(x % VIEWPORT_WIDTH,
+                                              y % VIEWPORT_HEIGHT, 3);
+}
+
+// x 0-512, y 0-480
+uint8_t *fetch_background_pattern(uint16_t x, uint16_t y) {
+    if (x < VIEWPORT_WIDTH && y < VIEWPORT_HEIGHT)
+        return fetch_background_pattern_with_nametable(x / 8, y / 8, 0);
+    if (x >= VIEWPORT_WIDTH && y < VIEWPORT_HEIGHT)
+        return fetch_background_pattern_with_nametable((x % VIEWPORT_WIDTH) / 8,
+                                                       y / 8, 1);
+    if (x < VIEWPORT_WIDTH && y >= VIEWPORT_HEIGHT)
+        return fetch_background_pattern_with_nametable(
+            x / 8, (y % VIEWPORT_HEIGHT) / 8, 2);
+
+    return fetch_background_pattern_with_nametable(
+        (x % VIEWPORT_WIDTH) / 8, (y % VIEWPORT_HEIGHT) / 8, 3);
+}
+
+// x 0-256 y 0-240
+uint8_t fetch_palette_index_with_nametable(uint8_t x, uint8_t y,
+                                           uint8_t nametable_idx) {
     uint16_t base;
     switch (nametable_idx) {
     case 0:
@@ -342,20 +353,21 @@ uint8_t fetch_palette_index(uint8_t x, uint8_t y, uint8_t nametable_idx) {
     }
     uint8_t attrib = this->memory.cart.read(base + (x / 32) + (y / 32) * 8);
 
-    if (x % 2 == 0 && y % 2 == 0) {
+    if (x % 32 < 16 && y % 32 < 16) {
         return attrib & 0b11;
     }
-    if (x % 2 == 1 && y % 2 == 0) {
+    if (x % 32 >= 16 && y % 32 < 16) {
         return (attrib >> 2) & 0b11;
     }
-    if (x % 2 == 0 && y % 2 == 1) {
+    if (x % 32 < 16 && y % 32 >= 16) {
         return (attrib >> 4) & 0b11;
     }
     return attrib >> 6;
 }
 
-uint8_t *fetch_background_pattern(uint16_t x, uint16_t y,
-                                  uint8_t nametable_idx) {
+// x 0-32, y 0-30
+uint8_t *fetch_background_pattern_with_nametable(uint8_t x, uint8_t y,
+                                                 uint8_t nametable_idx) {
     uint16_t base;
     switch (nametable_idx) {
     case 0:

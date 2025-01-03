@@ -20,9 +20,10 @@ uint8_t joystick_read_1(void);
 uint8_t joystick_read_2(void);
 
 void* ui_thread(void*);
-uint8_t* fetch_background_pattern(uint16_t x, uint16_t y, uint8_t nametable_idx);
+uint8_t* fetch_background_pattern(uint16_t x, uint16_t y);
+uint8_t* fetch_background_pattern_with_nametable(uint8_t x, uint8_t y, uint8_t nametable_idx);
 void fetch_tile(uint16_t idx);
-uint8_t fetch_palette_index(uint8_t x, uint8_t y, uint8_t nametable_idx);
-uint8_t fetch_palette_index_2(uint8_t x, uint8_t y);
+uint8_t fetch_palette_index(uint16_t x, uint16_t y);
+uint8_t fetch_palette_index_with_nametable(uint8_t x, uint8_t y, uint8_t nametable_idx);
 
 #endif

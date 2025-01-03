@@ -678,6 +678,8 @@ void cmp(addressing_mode mode, reg reg) {
 void branch(bool cond) {
     int8_t offset = read_next_byte();
     if (cond) {
+        this->remaining_cycles--;
+        if(this->pc / 256 != (this->pc + offset) / 256) this->remaining_cycles--;
         this->pc += offset;
     }
 }

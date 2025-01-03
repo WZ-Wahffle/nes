@@ -1,3 +1,4 @@
+#include <cstdio>
 #include <cstdlib>
 #include <raylib.h>
 #define NO_FONT_AWESOME
@@ -129,17 +130,14 @@ void cpp_imGui_render(cpu_t *cpu, ppu_t *ppu) {
     static char break_point_buffer[7];
     ImGui::InputText("Breakpoint", break_point_buffer, 7);
     cpu->run_until = strtol(break_point_buffer, NULL, 16);
-
-    ImGui::Text("A: 0x%02x X: 0x%02x Y: 0x%02x SP: 0x%02x ", cpu->a, cpu->x,
-                cpu->y, cpu->sp);
-
-    ImGui::Text("Status: NV.BDIZC");
-    ImGui::Text("        %d%d%d%d%d%d%d%d", (cpu->p & 0x80) != 0,
-                (cpu->p & 0x40) != 0, (cpu->p & 0x20) != 0,
-                (cpu->p & 0x10) != 0, (cpu->p & 0x8) != 0, (cpu->p & 0x4) != 0,
-                (cpu->p & 0x2) != 0, (cpu->p & 0x1) != 0);
-
-    ImGui::Text("JOY1: 0x%02x (%s)", ppu->joy1_mirror, GetGamepadName(0));
+    ImGui::NewLine();
+    static char address_buffer[5];
+    ImGui::InputText("RAM Address", address_buffer, 5);
+    static char value_buffer[3];
+    ImGui::InputText("Value", value_buffer, 3);
+    if(ImGui::Button("Set")) {
+        cpu->memory.ram[strtol(address_buffer, NULL, 16)] = strtol(value_buffer, NULL, 16);
+    }
 
     static int32_t page = 0;
     ImGui::InputInt("Page", &page);
@@ -159,6 +157,19 @@ void cpp_imGui_render(cpu_t *cpu, ppu_t *ppu) {
                 ImGui::TableNextRow();
         }
         ImGui::EndTable();
+    }
+
+    if(ImGui::CollapsingHeader("CPU")) {
+        ImGui::Text("A: 0x%02x X: 0x%02x Y: 0x%02x SP: 0x%02x ", cpu->a, cpu->x,
+                    cpu->y, cpu->sp);
+
+        ImGui::Text("Status: NV.BDIZC");
+        ImGui::Text("        %d%d%d%d%d%d%d%d", (cpu->p & 0x80) != 0,
+                    (cpu->p & 0x40) != 0, (cpu->p & 0x20) != 0,
+                    (cpu->p & 0x10) != 0, (cpu->p & 0x8) != 0, (cpu->p & 0x4) != 0,
+                    (cpu->p & 0x2) != 0, (cpu->p & 0x1) != 0);
+
+        ImGui::Text("JOY1: 0x%02x (%s)", ppu->joy1_mirror, GetGamepadName(0));
     }
 
     if (ImGui::CollapsingHeader("PPU")) {
