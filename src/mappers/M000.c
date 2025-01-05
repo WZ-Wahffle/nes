@@ -2,21 +2,29 @@
 #include <stdlib.h>
 
 static uint8_t *prg_ram;
+static uint8_t prg_ram_size;
 static uint8_t *prg_rom;
+static uint8_t prg_rom_size;
 static uint8_t *pattern_table;
 static uint8_t *vram;
 static uint8_t *name_table_1;
 static uint8_t *name_table_2;
 static nametable_arrangement arrangement;
 
-void m000_init(FILE *f, uint8_t prg_rom_size, uint8_t prg_ram_size,
+void m000_init(FILE *f, uint8_t rom_size, uint8_t ram_size,
                nametable_arrangement arr) {
+    prg_rom_size = rom_size;
+    prg_ram_size = ram_size;
     if (prg_ram_size == 0) {
         prg_ram_size = 1;
     }
+    if (prg_rom_size > 2) {
+        printf("Invalid PRG ROM size\n");
+        exit(1);
+    }
     arrangement = arr;
     prg_ram = calloc(prg_ram_size * 8192, 1);
-    prg_rom = calloc(prg_rom_size * 16384, 1);
+    prg_rom = calloc(16384 * prg_rom_size, 1);
     fread(prg_rom, 1, prg_rom_size * 16384, f);
     pattern_table = calloc(0x2000, 1);
     vram = calloc(0x800, 1);
@@ -29,7 +37,7 @@ uint8_t m000_cpu_read(uint16_t addr) {
     if (addr >= 0x6000 && addr < 0x8000) {
         return prg_ram[addr - 0x6000];
     } else {
-        return prg_rom[addr - 0x8000];
+        return prg_rom[(addr - 0x8000) % (16384 * prg_rom_size)];
     }
 }
 
