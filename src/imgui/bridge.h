@@ -10,6 +10,6 @@
 
   EXTERNC void cpp_init(void);
 
-  EXTERNC void cpp_imGui_render(cpu_t* cpu, ppu_t* ppu);
+  EXTERNC void cpp_imGui_render(cpu_t* cpu, ppu_t* ppu, apu_t* apu);
 
   EXTERNC void cpp_end(void);

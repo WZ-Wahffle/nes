@@ -3,6 +3,8 @@
 
 #include "types.h"
 
+apu_t *get_apu_handle(void);
+
 void apu_init(apu_t *apu);
 
 void apu_status(uint8_t value);
@@ -25,6 +27,7 @@ void noise_config(uint8_t value);
 void noise_period(uint8_t value);
 void noise_length_counter(uint8_t value);
 
+void dpcm_freq(uint8_t value);
 void dpcm_direct_load(uint8_t value);
 
 void frame_counter(uint8_t value);

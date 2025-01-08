@@ -1,18 +1,22 @@
 #ifndef TYPES_H
 #define TYPES_H
 
+#include <raylib.h>
 #include <stdbool.h>
 #include <stdint.h>
-#include <raylib.h>
+
+#define VIEWPORT_WIDTH 256
+#define VIEWPORT_HEIGHT 240
 
 typedef enum { EIGHTH, QUARTER, HALF, QUARTERINV } duty_cycle;
 
 typedef struct {
-    bool enable;
+    volatile bool enable;
     duty_cycle duty;
     bool loop;
     bool constant_volume;
     uint8_t volume_level_speed;
+    uint8_t volume_level;
     bool sweep_enable;
     uint8_t sweep_speed;
     bool sweep_negate;
@@ -24,14 +28,13 @@ typedef struct {
 } pulse_channel;
 
 typedef struct {
-    bool enable;
+    volatile bool enable;
     AudioStream stream;
     uint16_t length_counter;
     bool length_counter_halt;
     uint16_t linear_counter;
     uint16_t timer;
     float frequency;
-    bool volume;
 } triangle_channel;
 
 typedef struct {
@@ -43,10 +46,14 @@ typedef struct {
     bool mode;
     uint16_t timer_period;
     uint16_t length_counter;
+    uint16_t lfsr;
 } noise_channel;
 
 typedef struct {
     bool enable;
+    bool loop;
+    bool irq_enable;
+    uint16_t rate_index;
     uint8_t buffer;
     uint8_t remaining_bits;
     AudioStream stream;
@@ -60,11 +67,10 @@ typedef struct {
     dpcm_channel channel5;
     bool long_sequence;
     bool interrupt_inhibit;
+    float volume;
 } apu_t;
 
-typedef enum {
-    VERTICAL, HORIZONTAL
-} nametable_arrangement;
+typedef enum { VERTICAL, HORIZONTAL } nametable_arrangement;
 
 typedef struct {
     uint8_t (*read)(uint16_t);
@@ -95,7 +101,7 @@ typedef struct {
     bool background_pattern_table_address;
     bool sprite_pattern_table_address;
     bool vram_address_increment;
-    uint8_t base_nametable_address;
+    volatile uint8_t base_nametable_address;
     volatile bool vblank;
     volatile bool sprite_0;
     bool sprite_overflow;
@@ -121,11 +127,14 @@ typedef struct {
     volatile uint8_t joy2;
     volatile uint8_t joy1_mirror;
     volatile uint8_t joy2_mirror;
+
+    volatile bool sprite_0_hit_buffer[VIEWPORT_HEIGHT][VIEWPORT_WIDTH];
 } ppu_t;
 
 typedef struct {
     cpu_mmu memory;
     ppu_t *ppu;
+    apu_t *apu;
     uint8_t a;
     uint8_t x;
     uint8_t y;
@@ -133,11 +142,14 @@ typedef struct {
     uint8_t sp;
     uint8_t p;
 
-    volatile uint32_t remaining_cycles;
+    volatile double remaining_cycles;
+    volatile uint64_t elapsed_cycles;
 
     volatile bool run;
     volatile bool step;
     int32_t run_until;
+
+    uint16_t prev_pc[0xff];
 } cpu_t;
 
 typedef enum { NMI, RESET, BRK } interrupt_src;

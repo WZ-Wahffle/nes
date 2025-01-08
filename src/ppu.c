@@ -1,8 +1,10 @@
 #include "ppu.h"
+#include "apu.h"
 #include "cpu-mmu.h"
 #include "cpu.h"
 #include "imgui/bridge.h"
 #include "ppu-mmu.h"
+#include "types.h"
 #include <linux/limits.h>
 #include <raylib.h>
 #include <stdatomic.h>
@@ -11,11 +13,9 @@
 #include <stdlib.h>
 #include <unistd.h>
 
-#define VIEWPORT_WIDTH 256
-#define VIEWPORT_HEIGHT 240
 #define WINDOW_WIDTH VIEWPORT_WIDTH * 4
 #define WINDOW_HEIGHT VIEWPORT_HEIGHT * 4
-#define CYCLES_PER_LINE 113
+#define CYCLES_PER_LINE 113.66f
 
 uint32_t *framebuffer = NULL;
 static ppu_t *this;
@@ -73,6 +73,7 @@ void ppu_addr(uint8_t value) {
         this->t &= 0xff00;
         this->t |= value;
         this->w = false;
+        this->base_nametable_address &= ~1;
     }
 }
 
@@ -140,9 +141,11 @@ void *ui_thread(void *_) {
                               PIXELFORMAT_UNCOMPRESSED_R8G8B8A8};
     Texture texture = LoadTextureFromImage(framebufferImage);
 
-    bool sprite_0_hit_buffer[VIEWPORT_HEIGHT][VIEWPORT_WIDTH] = {0};
-
     bool show_debug = true;
+    bool highlight_sprite_0_hit = false;
+    bool show_hit_buffer = false;
+    uint8_t sprite_0_box_x[8][8] = {0};
+    uint8_t sprite_0_box_y[8][8] = {0};
 
     uint8_t joy1_idx = 0;
 
@@ -153,6 +156,10 @@ void *ui_thread(void *_) {
         ClearBackground(BLACK);
         for (uint32_t i = 0; i < 512; i++) {
             fetch_tile(i);
+        }
+        for (uint32_t i = 0; i < 64; i++) {
+            sprite_0_box_x[i / 8][i % 8] = 0;
+            sprite_0_box_y[i / 8][i % 8] = 0;
         }
 
         this->joy1_mirror =
@@ -197,83 +204,134 @@ void *ui_thread(void *_) {
         }
 
         this->sprite_0 = false;
-        get_cpu_handle()->remaining_cycles += CYCLES_PER_LINE;
         this->vblank = false;
+        get_cpu_handle()->remaining_cycles += CYCLES_PER_LINE;
 
         for (uint16_t y = 0; y < VIEWPORT_HEIGHT; y++) {
             // background drawing
             uint16_t scrolled_y = (y + this->scroll_y +
-                                   256 * (this->base_nametable_address / 2)) %
+                                   240 * (this->base_nametable_address / 2)) %
                                   480;
-            for (uint16_t x = 0; x < VIEWPORT_WIDTH; x++) {
-                uint16_t scrolled_x =
-                    (x + this->scroll_x +
-                     256 * (this->base_nametable_address % 2)) %
-                    512;
-                // pattern for current tile
-                uint8_t *pattern =
-                    fetch_background_pattern(scrolled_x, scrolled_y);
 
-                uint8_t palette_idx =
-                    fetch_palette_index(scrolled_x, scrolled_y);
+            if (this->background_enable)
+                for (uint16_t x = 0; x < VIEWPORT_WIDTH; x++) {
+                    uint16_t scrolled_x =
+                        (x + this->scroll_x +
+                         256 * (this->base_nametable_address % 2)) %
+                        512;
+                    // pattern for current tile
+                    uint8_t *pattern =
+                        fetch_background_pattern(scrolled_x, scrolled_y);
 
-                if (pattern[(scrolled_x % 8) + 8 * (scrolled_y % 8)] != 0) {
-                    framebuffer[x + y * VIEWPORT_WIDTH] =
-                        palette_lookup[this->memory.palette_ram
-                                           [palette_idx * 4 +
-                                            pattern[(scrolled_x % 8) +
-                                                    8 * (scrolled_y % 8)]]];
-                    sprite_0_hit_buffer[y][x] = true;
+                    uint8_t palette_idx =
+                        fetch_palette_index(scrolled_x, scrolled_y);
+
+                    if (pattern[(scrolled_x % 8) + 8 * (scrolled_y % 8)] != 0) {
+                        framebuffer[x + y * VIEWPORT_WIDTH] =
+                            palette_lookup[this->memory.palette_ram
+                                               [palette_idx * 4 +
+                                                pattern[(scrolled_x % 8) +
+                                                        8 * (scrolled_y % 8)]]];
+                        this->sprite_0_hit_buffer[y][x] = true;
+                    }
                 }
-            }
 
             // sprite drawing
-            for (int8_t i = 63; i >= 0; i--) {
-                if (this->oam[i].y_pos <= y && this->oam[i].y_pos + 8 > y) {
-                    if (this->large_sprites) {
-                        printf("aaa\n");
-                        break;
-                    }
-                    bool flip_x = this->oam[i].attributes & 0x40;
-                    bool flip_y = this->oam[i].attributes & 0x80;
-                    uint8_t palette_idx = this->oam[i].attributes & 0x3;
-                    bool in_front = this->oam[i].attributes & 0x20;
-                    uint8_t tile_y = y - (this->oam[i].y_pos);
-                    uint8_t *pattern = pattern_buffer
-                        [(this->sprite_pattern_table_address ? 256 : 0) +
-                         this->oam[i].tile_index]
-                        [flip_y ? (7 - (tile_y % 8)) : (tile_y % 8)];
+            if (this->sprite_enable)
+                for (int8_t i = 63; i >= 0; i--) {
+                    if (this->large_sprites && this->oam[i].y_pos <= y &&
+                        this->oam[i].y_pos + 16 > y) {
+                        bool flip_x = this->oam[i].attributes & 0x40;
+                        bool flip_y = this->oam[i].attributes & 0x80;
+                        uint8_t palette_idx = this->oam[i].attributes & 0x3;
+                        bool in_front = this->oam[i].attributes & 0x20;
+                        uint8_t tile_y = y - (this->oam[i].y_pos);
+                        uint8_t *pattern =
+                            pattern_buffer[((this->oam[i].tile_index & 1) ? 256
+                                                                          : 0) +
+                                           (this->oam[i].tile_index & ~1) +
+                                           (tile_y > 7 ? 1 : 0)]
+                                          [flip_y ? (7 - (tile_y % 8))
+                                                  : (tile_y % 8)];
 
-                    for (uint8_t x = 0; x < 8; x++) {
-                        uint16_t tile_x = flip_x ? (7 - x) : (x);
-                        if (i == 0 &&
-                            sprite_0_hit_buffer[y][(this->oam[i].x_pos + x) %
-                                                   256] &&
-                            pattern[tile_x] != 0) {
-                            this->sprite_0 = true;
+                        for (uint8_t x = 0; x < 8; x++) {
+                            uint16_t tile_x = flip_x ? (7 - x) : (x);
+                            if (i == 0 &&
+                                this->sprite_0_hit_buffer
+                                    [y][(this->oam[i].x_pos + x) % 256] &&
+                                pattern[tile_x] != 0) {
+                                this->sprite_0 = true;
+                            }
+
+                            if ((!this->sprite_0_hit_buffer
+                                      [y][(this->oam[i].x_pos + x) % 256] ||
+                                 !in_front) &&
+                                pattern[tile_x] != 0) {
+                                framebuffer[VIEWPORT_WIDTH * y +
+                                            (this->oam[i].x_pos + x) % 256] =
+                                    palette_lookup[this->memory.palette_ram
+                                                       [16 + palette_idx * 4 +
+                                                        pattern[tile_x]]];
+                            }
                         }
 
-                        if ((!sprite_0_hit_buffer[y][(this->oam[i].x_pos + x) %
-                                                     256] ||
-                             !in_front) &&
-                            pattern[tile_x] != 0) {
-                            framebuffer[VIEWPORT_WIDTH * y +
-                                        (this->oam[i].x_pos + x) % 256] =
-                                palette_lookup[this->memory.palette_ram
-                                                   [16 + palette_idx * 4 +
-                                                    pattern[tile_x]]];
+                    } else if (this->oam[i].y_pos <= y &&
+                               this->oam[i].y_pos + 8 > y) {
+                        bool flip_x = this->oam[i].attributes & 0x40;
+                        bool flip_y = this->oam[i].attributes & 0x80;
+                        uint8_t palette_idx = this->oam[i].attributes & 0x3;
+                        bool in_front = this->oam[i].attributes & 0x20;
+                        uint8_t tile_y = y - (this->oam[i].y_pos);
+                        uint8_t *pattern = pattern_buffer
+                            [(this->sprite_pattern_table_address ? 256 : 0) +
+                             this->oam[i].tile_index]
+                            [flip_y ? (7 - (tile_y % 8)) : (tile_y % 8)];
+
+                        for (uint8_t x = 0; x < 8; x++) {
+                            uint16_t tile_x = flip_x ? (7 - x) : (x);
+                            if (i == 0 &&
+                                this->sprite_0_hit_buffer
+                                    [y][(this->oam[i].x_pos + x) % 256] &&
+                                pattern[tile_x] != 0) {
+                                this->sprite_0 = true;
+                                sprite_0_box_x[tile_y][x] =
+                                    this->oam[i].x_pos + x;
+                                sprite_0_box_y[tile_y][x] = y;
+                            }
+
+                            if ((!this->sprite_0_hit_buffer
+                                      [y][(this->oam[i].x_pos + x) % 256] ||
+                                 !in_front) &&
+                                pattern[tile_x] != 0) {
+                                framebuffer[VIEWPORT_WIDTH * y +
+                                            (this->oam[i].x_pos + x) % 256] =
+                                    palette_lookup[this->memory.palette_ram
+                                                       [16 + palette_idx * 4 +
+                                                        pattern[tile_x]]];
+                            }
                         }
                     }
                 }
-            }
 
             get_cpu_handle()->remaining_cycles += CYCLES_PER_LINE;
         }
+        this->vblank = true;
 
-        for (uint16_t x = 0; x < VIEWPORT_WIDTH; x++) {
-            for (uint16_t y = 0; y < VIEWPORT_HEIGHT; y++) {
-                sprite_0_hit_buffer[y][x] = false;
+        if (show_hit_buffer) {
+            for (uint16_t x = 0; x < VIEWPORT_WIDTH; x++) {
+                for (uint16_t y = 0; y < VIEWPORT_HEIGHT; y++) {
+                    if (this->sprite_0_hit_buffer[y][x])
+                        framebuffer[x + VIEWPORT_WIDTH * y] = 0xffff0000;
+                }
             }
+        }
+
+        if (highlight_sprite_0_hit) {
+            for (uint8_t x = 0; x < 8; x++)
+                for (uint8_t y = 0; y < 8; y++)
+                    framebuffer[sprite_0_box_x[y][x] +
+                                VIEWPORT_WIDTH * sprite_0_box_y[y][x]] =
+                        0xff0000ff;
         }
 
         UpdateTexture(texture, framebuffer);
@@ -286,13 +344,26 @@ void *ui_thread(void *_) {
             show_debug = !show_debug;
         }
 
+        if (IsKeyPressed(KEY_LEFT_ALT)) {
+            highlight_sprite_0_hit = !highlight_sprite_0_hit;
+        }
+
+        if (IsKeyPressed(KEY_RIGHT_ALT)) {
+            show_hit_buffer = !show_hit_buffer;
+        }
+
         if (show_debug)
-            cpp_imGui_render(get_cpu_handle(), this);
+            cpp_imGui_render(get_cpu_handle(), this, get_apu_handle());
+
+        for (uint16_t x = 0; x < VIEWPORT_WIDTH; x++) {
+            for (uint16_t y = 0; y < VIEWPORT_HEIGHT; y++) {
+                this->sprite_0_hit_buffer[y][x] = false;
+            }
+        }
 
         DrawFPS(0, 0);
-        this->vblank = true;
 
-        get_cpu_handle()->remaining_cycles += CYCLES_PER_LINE * 21;
+        get_cpu_handle()->remaining_cycles += 2273;
         EndDrawing();
     }
 

@@ -80,6 +80,9 @@ void cpu_mmu_write(cpu_mmu *this, uint16_t addr, uint8_t value) {
         case 0x0f:
             noise_length_counter(value);
             break;
+        case 0x10:
+            dpcm_freq(value);
+            break;
         case 0x11:
             dpcm_direct_load(value);
             break;
@@ -126,7 +129,8 @@ uint8_t cpu_mmu_read(cpu_mmu *this, uint16_t addr) {
             break;
         default:
             printf("PPU read at 0x%04x not implemented\n", addr);
-            exit(1);
+            return 0;
+            // exit(1);
         }
     }
 

@@ -85,7 +85,7 @@ std::string opcode_lookup[] = {
 extern "C" {
 void cpp_init(void) { rlImGuiSetup(true); }
 
-void cpp_imGui_render(cpu_t *cpu, ppu_t *ppu) {
+void cpp_imGui_render(cpu_t *cpu, ppu_t *ppu, apu_t *apu) {
     rlImGuiBegin();
 
     float old_size = ImGui::GetFont()->Scale;
@@ -135,8 +135,9 @@ void cpp_imGui_render(cpu_t *cpu, ppu_t *ppu) {
     ImGui::InputText("RAM Address", address_buffer, 5);
     static char value_buffer[3];
     ImGui::InputText("Value", value_buffer, 3);
-    if(ImGui::Button("Set")) {
-        cpu->memory.ram[strtol(address_buffer, NULL, 16)] = strtol(value_buffer, NULL, 16);
+    if (ImGui::Button("Set")) {
+        cpu->memory.ram[strtol(address_buffer, NULL, 16)] =
+            strtol(value_buffer, NULL, 16);
     }
 
     static int32_t page = 0;
@@ -159,23 +160,54 @@ void cpp_imGui_render(cpu_t *cpu, ppu_t *ppu) {
         ImGui::EndTable();
     }
 
-    if(ImGui::CollapsingHeader("CPU")) {
-        ImGui::Text("A: 0x%02x X: 0x%02x Y: 0x%02x SP: 0x%02x ", cpu->a, cpu->x,
-                    cpu->y, cpu->sp);
+    if (ImGui::CollapsingHeader("CPU")) {
+        ImGui::Text("A: 0x%02x X: 0x%02x Y: 0x%02x SP: 0x%02x P: 0x%02x", cpu->a, cpu->x,
+                    cpu->y, cpu->sp, cpu->p);
 
         ImGui::Text("Status: NV.BDIZC");
         ImGui::Text("        %d%d%d%d%d%d%d%d", (cpu->p & 0x80) != 0,
                     (cpu->p & 0x40) != 0, (cpu->p & 0x20) != 0,
-                    (cpu->p & 0x10) != 0, (cpu->p & 0x8) != 0, (cpu->p & 0x4) != 0,
-                    (cpu->p & 0x2) != 0, (cpu->p & 0x1) != 0);
+                    (cpu->p & 0x10) != 0, (cpu->p & 0x8) != 0,
+                    (cpu->p & 0x4) != 0, (cpu->p & 0x2) != 0,
+                    (cpu->p & 0x1) != 0);
+
+        ImGui::Text("Elapsed cycles: %lu", cpu->elapsed_cycles);
+        ImGui::Text("Remaining cycles: %lf", cpu->remaining_cycles);
 
         ImGui::Text("JOY1: 0x%02x (%s)", ppu->joy1_mirror, GetGamepadName(0));
     }
 
+    if(ImGui::CollapsingHeader("PC history")) {
+        ImGui::BeginTable("pchist", 1, ImGuiTableFlags_Borders | ImGuiTableFlags_RowBg);
+        for(uint16_t i = 0; i < 0x100; i++) {
+            ImGui::TableNextColumn();
+            ImGui::Text("0x%04x", cpu->prev_pc[i]);
+            ImGui::TableNextRow();
+        }
+        ImGui::EndTable();
+    }
+
     if (ImGui::CollapsingHeader("PPU")) {
-        ImGui::Text("Scroll X: %d, Scroll Y: %d", ppu->scroll_x,
-                    ppu->scroll_y);
+        ImGui::Text("Scroll X: %d, Scroll Y: %d", ppu->scroll_x, ppu->scroll_y);
         ImGui::Text("Base Nametable: %d", ppu->base_nametable_address);
+
+        float new_old_size = ImGui::GetFont()->Scale;
+        ImGui::GetFont()->Scale /= 8;
+        ImGui::PushFont(ImGui::GetFont());
+
+        ImGui::GetFont()->Scale = new_old_size;
+        ImGui::PopFont();
+    }
+
+    if(ImGui::CollapsingHeader("APU")) {
+        ImGui::Text("Channel 1 volume: %f", apu->channel1.volume_level / 15.f);
+        ImGui::Text("Channel 1 envelope speed: %d", apu->channel1.volume_level_speed);
+        ImGui::Text("Channel 1 frequency: %f", apu->channel1.frequency);
+        ImGui::Text("Channel 1 length timer: %d", apu->channel1.length_counter);
+        ImGui::Text("Channel 2 volume: %f", apu->channel2.volume_level / 15.f);
+        ImGui::Text("Channel 2 envelope speed: %d", apu->channel2.volume_level_speed);
+        ImGui::Text("Channel 2 frequency: %f", apu->channel2.frequency);
+        ImGui::Text("Channel 2 length timer: %d", apu->channel2.length_counter);
     }
 
     if (ImGui::CollapsingHeader("VRAM")) {
@@ -228,6 +260,7 @@ void cpp_imGui_render(cpu_t *cpu, ppu_t *ppu) {
         }
         ImGui::EndTable();
     }
+
     ImGui::End();
 
     ImGui::GetFont()->Scale = old_size;

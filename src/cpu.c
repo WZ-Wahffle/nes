@@ -23,7 +23,12 @@ uint8_t cycle_lookup[] = {
     2, 5, 0, 8, 4, 4, 6, 6, 2, 4, 2, 7, 4, 4, 7, 7,
 };
 
-void cpu_init(cpu_t *cpu) { this = cpu; }
+void cpu_init(cpu_t *cpu) {
+    this = cpu;
+    for(uint16_t i = 0; i < 0x100; i++) {
+        this->prev_pc[i] = 0;
+    }
+}
 
 cpu_t *get_cpu_handle(void) { return this; }
 
@@ -36,7 +41,7 @@ static uint8_t clear_bit(uint8_t value, uint8_t idx) {
 }
 
 static void set_status_bit(status_bit b, bool value) {
-    this->p = value ? set_bit(this->p, b) : clear_bit(this->p, b);
+    this->p = (value ? set_bit(this->p, b) : clear_bit(this->p, b));
 }
 
 static bool get_status_bit(status_bit b) { return (this->p & (1 << b)) != 0; }
@@ -97,11 +102,22 @@ static uint8_t read_mode(addressing_mode mode) {
     case ZEROPAGE:
         return read_8(read_next_byte());
         break;
-    case INDIRECTX:
-        return read_16le(read_8((this->x + read_next_byte()) % 0x100));
+    case INDIRECTX:;
+        uint8_t addr_x = read_next_byte() + this->x;
+        if (addr_x == 0xff) {
+            return read_8(TO_U16(read_8(0xff), read_8(0x00)) % 0x10000);
+        } else {
+            return read_8(read_16le(addr_x) % 0x10000);
+        }
         break;
-    case INDIRECTY:
-        return read_8((this->y + read_16le(read_next_byte())) % 0x10000);
+    case INDIRECTY:;
+        uint8_t addr_y = read_next_byte();
+        if (addr_y == 0xff) {
+            return read_8(this->y +
+                          TO_U16(read_8(0xff), read_8(0x00)) % 0x10000);
+        } else {
+            return read_8((this->y + read_16le(addr_y)) % 0x10000);
+        }
         break;
     case ZEROPAGEX:
         return read_8((this->x + read_next_byte()) % 0x100);
@@ -132,13 +148,22 @@ static void write_mode(addressing_mode mode, uint8_t value) {
     case ACCUMULATOR:
         this->a = value;
         break;
-    case INDIRECTX:
-        write_16le(read_8((this->x + read_next_byte()) % 0x100),
-                   value); // TODO test this
+    case INDIRECTX:;
+        uint8_t addr_x = this->x + read_next_byte();
+        if (addr_x == 0xff) {
+            write_8(TO_U16(read_8(0xff), read_8(0x00)), value);
+        } else {
+            write_8(read_16le((addr_x) % 0x10000), value);
+        }
         break;
-    case INDIRECTY:
-        write_8((this->y + read_16le(read_next_byte())) % 0x10000,
-                value); // TODO test this
+    case INDIRECTY:;
+        uint8_t addr_y = read_next_byte();
+        if (addr_y == 0xff) {
+            write_8((this->y + TO_U16(read_8(0xff), read_8(0x00))) % 0x10000,
+                    value);
+        } else {
+            write_8((this->y + read_16le(addr_y)) % 0x10000, value);
+        }
         break;
     case ZEROPAGEX:
         write_8((this->x + read_next_byte()) % 0x100, value);
@@ -168,6 +193,9 @@ static void execute(uint8_t opcode) {
         break;
     case 0x06:
         asl(ZEROPAGE);
+        break;
+    case 0x08:
+        push(this->p | 0x30);
         break;
     case 0x09:
         ora(IMMEDIATE);
@@ -220,6 +248,9 @@ static void execute(uint8_t opcode) {
     case 0x26:
         rol(ZEROPAGE);
         break;
+    case 0x28:
+        this->p = pop() | 0x20;
+        break;
     case 0x29:
         and(IMMEDIATE);
         break;
@@ -235,7 +266,7 @@ static void execute(uint8_t opcode) {
     case 0x2e:
         rol(ABSOLUTE);
         break;
-        case 0x30:
+    case 0x30:
         branch(get_status_bit(N));
         break;
     case 0x31:
@@ -245,7 +276,7 @@ static void execute(uint8_t opcode) {
         and(ZEROPAGEX);
         break;
     case 0x36:
-        rol(ZEROPAGE);
+        rol(ZEROPAGEX);
         break;
     case 0x38:
         set_status_bit(C, true);
@@ -260,8 +291,8 @@ static void execute(uint8_t opcode) {
         rol(ABSX);
         break;
     case 0x40:
-        this->p = pop();
-        this->pc = pop_16le() + 1;
+        this->p = pop() | 0x20;
+        this->pc = pop_16le();
         break;
     case 0x41:
         eor(INDIRECTX);
@@ -290,6 +321,9 @@ static void execute(uint8_t opcode) {
     case 0x4e:
         lsr(ABSOLUTE);
         break;
+    case 0x50:
+        branch(!get_status_bit(V));
+        break;
     case 0x51:
         eor(INDIRECTY);
         break;
@@ -298,6 +332,9 @@ static void execute(uint8_t opcode) {
         break;
     case 0x56:
         lsr(ZEROPAGEX);
+        break;
+    case 0x58:
+        set_status_bit(I, false);
         break;
     case 0x59:
         eor(ABSY);
@@ -331,14 +368,22 @@ static void execute(uint8_t opcode) {
     case 0x6a:
         ror_a();
         break;
-    case 0x6c:
-        this->pc = read_16le(read_next_short_le());
+    case 0x6c:;
+        uint16_t jmp_addr = read_next_short_le();
+        if (jmp_addr % 0x100 == 0xff) {
+            this->pc = TO_U16(read_8(jmp_addr), read_8(jmp_addr - 0xff));
+        } else {
+            this->pc = read_16le(jmp_addr);
+        }
         break;
     case 0x6d:
         adc(ABSOLUTE);
         break;
     case 0x6e:
         ror(ABSOLUTE);
+        break;
+    case 0x70:
+        branch(get_status_bit(V));
         break;
     case 0x71:
         adc(INDIRECTY);
@@ -466,6 +511,9 @@ static void execute(uint8_t opcode) {
     case 0xb6:
         ldx(ZEROPAGEY);
         break;
+    case 0xb8:
+        set_status_bit(V, false);
+        break;
     case 0xb9:
         lda(ABSY);
         break;
@@ -561,6 +609,9 @@ static void execute(uint8_t opcode) {
     case 0xe9:
         sbc(IMMEDIATE);
         break;
+    case 0xea:
+        // NOP
+        break;
     case 0xec:
         cmp(ABSOLUTE, X);
         break;
@@ -582,6 +633,9 @@ static void execute(uint8_t opcode) {
     case 0xf6:
         inc(ZEROPAGEX);
         break;
+    case 0xf8:
+        set_status_bit(D, true);
+        break;
     case 0xf9:
         sbc(ABSY);
         break;
@@ -599,27 +653,49 @@ static void execute(uint8_t opcode) {
 }
 
 static void run(void) {
+    this->p = 0x24;
+    this->sp = 0xfd;
     while (1) {
+        if (this->elapsed_cycles % this->apu->channel4.timer_period == 0) {
+            bool feedback =
+                (this->apu->channel4.lfsr & 1) ^
+                ((this->apu->channel4.lfsr &
+                  (this->apu->channel4.mode ? 0x40 : 0x2)) != 0);
+            this->apu->channel4.lfsr >>= 1;
+            this->apu->channel4.lfsr &= ~0b100000000000000;
+            this->apu->channel4.lfsr |= feedback << 14;
+        }
+
         if (this->step || this->run) {
             this->step = false;
 
             uint8_t opcode = read_next_byte();
             execute(opcode);
+            this->remaining_cycles -= cycle_lookup[opcode];
+            this->elapsed_cycles += cycle_lookup[opcode];
+
             if (this->ppu->enable_vblank_nmi && this->ppu->vblank) {
                 this->ppu->vblank = false;
-                push_16le(this->pc - 1);
-                push(this->p);
+                push_16le(this->pc);
+                push(this->p & ~(0x10));
                 set_status_bit(I, true);
                 this->pc = read_16le(0xfffa);
             }
 
-            this->remaining_cycles -= cycle_lookup[opcode];
+            /*
+            for(uint16_t i = 0xff; i > 0; i--) {
+                this->prev_pc[i] = this->prev_pc[i-1];
+            }
+            this->prev_pc[0] = this->pc;
+            */
 
             if (this->pc == this->run_until) {
                 this->run = false;
                 this->step = false;
             }
         }
+
+        while(this->remaining_cycles <= 0) {}
     }
 }
 
@@ -679,7 +755,11 @@ void branch(bool cond) {
     int8_t offset = read_next_byte();
     if (cond) {
         this->remaining_cycles--;
-        if(this->pc / 256 != (this->pc + offset) / 256) this->remaining_cycles--;
+        this->elapsed_cycles++;
+        if (this->pc / 256 != (this->pc + offset) / 256) {
+            this->remaining_cycles--;
+            this->elapsed_cycles++;
+        }
         this->pc += offset;
     }
 }
@@ -773,8 +853,8 @@ void dec_r(reg reg) {
 void bit(addressing_mode mode) {
     uint8_t operand = read_mode(mode);
     set_status_bit(Z, (operand & this->a) == 0);
-    set_status_bit(N, (operand & 0x40) != 0);
-    set_status_bit(V, (operand & 0x20) != 0);
+    set_status_bit(N, (operand & 0x80) != 0);
+    set_status_bit(V, (operand & 0x40) != 0);
 }
 
 void ora(addressing_mode mode) {
@@ -799,19 +879,19 @@ void adc(addressing_mode mode) {
     uint8_t operand = read_mode(mode);
     uint16_t result = this->a + operand + (get_status_bit(C) ? 1 : 0);
     set_status_bit(N, (result & 0x80) != 0);
-    set_status_bit(Z, result == 0);
+    set_status_bit(Z, (result & 0xff) == 0);
     set_status_bit(C, result > 0xff);
     set_status_bit(V,
-                   !((this->a ^ operand) & 0x80) &&
-                       ((this->a ^ result) & 0x80)); // TODO: test this
-    this->a = result & 0xff;
+                   ((operand ^ result) & (this->a ^ result) & 0x80) !=
+                       0); // TODO: test this
+    this->a = result;
 }
 
 void sbc(addressing_mode mode) {
     uint8_t operand = read_mode(mode);
     uint16_t result = this->a - operand - (get_status_bit(C) ? 0 : 1);
     set_status_bit(N, (result & 0x80) != 0);
-    set_status_bit(Z, result == 0);
+    set_status_bit(Z, (result & 0xff) == 0);
     set_status_bit(C, result < 0x100);
     set_status_bit(V,
                    ((this->a ^ operand) & 0x80) &&
