@@ -682,13 +682,6 @@ static void run(void) {
                 this->pc = read_16le(0xfffa);
             }
 
-            /*
-            for(uint16_t i = 0xff; i > 0; i--) {
-                this->prev_pc[i] = this->prev_pc[i-1];
-            }
-            this->prev_pc[0] = this->pc;
-            */
-
             if (this->pc == this->run_until) {
                 this->run = false;
                 this->step = false;

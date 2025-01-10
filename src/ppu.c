@@ -73,7 +73,7 @@ void ppu_addr(uint8_t value) {
         this->t &= 0xff00;
         this->t |= value;
         this->w = false;
-        this->base_nametable_address &= ~1;
+        this->base_nametable_address &= ~0b11;
     }
 }
 

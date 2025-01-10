@@ -11,7 +11,7 @@
 #include <string.h>
 
 int main(void) {
-    FILE *f = fopen("resources/smb.nes", "rb");
+    FILE *f = fopen("resources/smb2.nes", "rb");
     int8_t header[16] = {0};
     fread(header, 16, 1, f);
     if (strncmp((char[]){'N', 'E', 'S', 0x1a}, (char *)header, 4) != 0) {

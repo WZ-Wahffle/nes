@@ -37,8 +37,7 @@ uint8_t m004_cpu_read(uint16_t addr) {
     if (addr >= 0x6000 && addr < 0x8000) {
         return prg_ram[addr - 0x6000];
     }
-
-    if (addr >= 0x8000) {
+    else if (addr >= 0x8000) {
         if (prg_rom_bank_mode) {
             if (addr < 0xa000) {
                 return prg_rom[((prg_rom_size * 2) - 2) * 0x2000 + addr -
@@ -73,14 +72,16 @@ uint8_t m004_cpu_read(uint16_t addr) {
 void m004_cpu_write(uint16_t addr, uint8_t value) {
     if (addr >= 0x6000 && addr < 0x8000) {
         prg_ram[addr - 0x6000] = value;
-    }
-
-    if (addr >= 0x8000 && addr < 0xa000) {
+    } else if (addr >= 0x8000 && addr < 0xa000) {
         if (addr % 2 == 0) {
             r_next = value & 0b111;
             prg_rom_bank_mode = value & 0x40;
             chr_inversion = value & 0x80;
         } else {
+            if (r_next == 0 || r_next == 1)
+                value &= ~1;
+            if (r_next == 6 || r_next == 7)
+                value &= 0b111111;
             r[r_next] = value;
         }
     } else if (addr < 0xc000) {
@@ -89,8 +90,8 @@ void m004_cpu_write(uint16_t addr, uint8_t value) {
         } else {
             // write protection and RAM enable, omitted for now
         }
-    } else if(addr < 0xe000) {
-        if(addr % 2 == 0) {
+    } else if (addr < 0xe000) {
+        if (addr % 2 == 0) {
             printf("TODO: IRQ latch\n");
         } else {
             printf("TODO: IRQ reload\n");
@@ -110,31 +111,31 @@ uint8_t m004_ppu_read(uint16_t addr) {
     if (addr < 0x2000) {
         if (chr_inversion) {
             if (addr < 0x400) {
-                return chr_rom[r[2] * 1024 + addr];
+                return chr_rom[r[2] * 0x400 + addr];
             } else if (addr < 0x800) {
-                return chr_rom[r[3] * 1024 + addr - 0x400];
+                return chr_rom[r[3] * 0x400 + addr - 0x400];
             } else if (addr < 0xc00) {
-                return chr_rom[r[4] * 1024 + addr - 0x800];
+                return chr_rom[r[4] * 0x400 + addr - 0x800];
             } else if (addr < 0x1000) {
-                return chr_rom[r[5] * 1024 + addr - 0xc00];
+                return chr_rom[r[5] * 0x400 + addr - 0xc00];
             } else if (addr < 0x1800) {
-                return chr_rom[r[0] * 2048 + addr - 0x1000];
+                return chr_rom[r[0] * 0x400 + addr - 0x1000];
             } else {
-                return chr_rom[r[1] * 2048 + addr - 0x1800];
+                return chr_rom[r[1] * 0x400 + addr - 0x1800];
             }
         } else {
             if (addr < 0x800) {
-                return chr_rom[r[0] * 2048 + addr];
+                return chr_rom[r[0] * 0x400 + addr];
             } else if (addr < 0x1000) {
-                return chr_rom[r[1] * 2048 + addr - 0x800];
+                return chr_rom[r[1] * 0x400 + addr - 0x800];
             } else if (addr < 0x1400) {
-                return chr_rom[r[2] * 1024 + addr - 0x1000];
+                return chr_rom[r[2] * 0x400 + addr - 0x1000];
             } else if (addr < 0x1800) {
-                return chr_rom[r[3] * 1024 + addr - 0x1400];
+                return chr_rom[r[3] * 0x400 + addr - 0x1400];
             } else if (addr < 0x1c00) {
-                return chr_rom[r[4] * 1024 + addr - 0x1800];
+                return chr_rom[r[4] * 0x400 + addr - 0x1800];
             } else {
-                return chr_rom[r[5] * 1024 + addr - 0x1c00];
+                return chr_rom[r[5] * 0x400 + addr - 0x1c00];
             }
         }
     } else if (addr < 0x3000) {
@@ -143,23 +144,23 @@ uint8_t m004_ppu_read(uint16_t addr) {
         } else {
             if (arrangement == HORIZONTAL) {
                 if (addr < 0x2400) {
-                    return vram[addr - 0x2000];
+                    return vram[(addr % 0x400)];
                 } else if (addr < 0x2800) {
-                    return vram[addr - 0x2400];
+                    return vram[(addr % 0x400)];
                 } else if (addr < 0x2c00) {
-                    return vram[addr - 0x2800 + 0x400];
+                    return vram[(addr % 0x400) + 0x400];
                 } else {
-                    return vram[addr - 0x2c00 + 0x400];
+                    return vram[(addr % 0x400) + 0x400];
                 }
             } else {
                 if (addr < 0x2400) {
-                    return vram[addr - 0x2000];
+                    return vram[(addr % 0x400)];
                 } else if (addr < 0x2800) {
-                    return vram[addr - 0x2400 + 0x400];
+                    return vram[(addr % 0x400) + 0x400];
                 } else if (addr < 0x2c00) {
-                    return vram[addr - 0x2800];
+                    return vram[(addr % 0x400)];
                 } else {
-                    return vram[addr - 0x2c00 + 0x400];
+                    return vram[(addr % 0x400) + 0x400];
                 }
             }
         }
@@ -176,23 +177,23 @@ void m004_ppu_write(uint16_t addr, uint8_t value) {
         } else {
             if (arrangement == HORIZONTAL) {
                 if (addr < 0x2400) {
-                    vram[addr - 0x2000] = value;
+                    vram[(addr % 0x400)] = value;
                 } else if (addr < 0x2800) {
-                    vram[addr - 0x2400] = value;
+                    vram[(addr % 0x400)] = value;
                 } else if (addr < 0x2c00) {
-                    vram[addr - 0x2800 + 0x400] = value;
+                    vram[(addr % 0x400) + 0x400] = value;
                 } else {
-                    vram[addr - 0x2c00 + 0x400] = value;
+                    vram[(addr % 0x400) + 0x400] = value;
                 }
             } else {
                 if (addr < 0x2400) {
-                    vram[addr - 0x2000] = value;
+                    vram[(addr % 0x400)] = value;
                 } else if (addr < 0x2800) {
-                    vram[addr - 0x2400 + 0x400] = value;
+                    vram[(addr % 0x400) + 0x400] = value;
                 } else if (addr < 0x2c00) {
-                    vram[addr - 0x2800] = value;
+                    vram[(addr % 0x400)] = value;
                 } else {
-                    vram[addr - 0x2c00 + 0x400] = value;
+                    vram[(addr % 0x400) + 0x400] = value;
                 }
             }
         }
