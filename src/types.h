@@ -56,6 +56,8 @@ typedef struct {
     uint16_t rate_index;
     uint8_t buffer;
     uint8_t remaining_bits;
+    uint16_t current_address;
+    uint16_t sample_length;
     AudioStream stream;
 } dpcm_channel;
 
@@ -129,6 +131,8 @@ typedef struct {
     volatile uint8_t joy2_mirror;
 
     volatile bool sprite_0_hit_buffer[VIEWPORT_HEIGHT][VIEWPORT_WIDTH];
+
+    void (*end_of_scanline_callback)(uint8_t);
 } ppu_t;
 
 typedef struct {
@@ -141,6 +145,7 @@ typedef struct {
     uint16_t pc;
     uint8_t sp;
     uint8_t p;
+    bool irq;
 
     volatile double remaining_cycles;
     volatile uint64_t elapsed_cycles;
@@ -149,7 +154,8 @@ typedef struct {
     volatile bool step;
     int32_t run_until;
 
-    uint16_t prev_pc[0xff];
+    uint8_t prev_inst[0x10000];
+    uint16_t prev_inst_idx;
 } cpu_t;
 
 typedef enum { NMI, RESET, BRK } interrupt_src;

@@ -29,6 +29,8 @@ void noise_length_counter(uint8_t value);
 
 void dpcm_freq(uint8_t value);
 void dpcm_direct_load(uint8_t value);
+void dpcm_sample_addr(uint8_t value);
+void dpcm_sample_length(uint8_t value);
 
 void frame_counter(uint8_t value);
 

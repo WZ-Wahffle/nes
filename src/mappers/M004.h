@@ -10,5 +10,6 @@ void m004_cpu_write(uint16_t, uint8_t);
 uint8_t m004_ppu_read(uint16_t);
 void m004_ppu_write(uint16_t, uint8_t);
 void m004_free(void);
+void m004_scanline_callback(uint8_t);
 
 #endif

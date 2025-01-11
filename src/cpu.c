@@ -25,8 +25,8 @@ uint8_t cycle_lookup[] = {
 
 void cpu_init(cpu_t *cpu) {
     this = cpu;
-    for(uint16_t i = 0; i < 0x100; i++) {
-        this->prev_pc[i] = 0;
+    for (uint32_t i = 0; i < 0x10000; i++) {
+        this->prev_inst[i] = 0;
     }
 }
 
@@ -185,6 +185,12 @@ static void write_mode(addressing_mode mode, uint8_t value) {
 
 static void execute(uint8_t opcode) {
     switch (opcode) {
+    // case 0x00:
+    //     read_next_byte();
+    //     push_16le(this->pc);
+    //     push(this->p | 0x10);
+    //     this->pc = read_16le(0xfffe);
+    //     break;
     case 0x01:
         ora(INDIRECTX);
         break;
@@ -648,6 +654,10 @@ static void execute(uint8_t opcode) {
     default:
         printf("Opcode 0x%02x at 0x%04x not implemented\n", opcode,
                this->pc - 1);
+        printf("Stack trace: \n");
+        for(uint32_t i = this->prev_inst_idx; i != this->prev_inst_idx-1; i++) {
+            printf("0x%04x: 0x%02x\n", i, this->prev_inst[i]);
+        }
         exit(1);
     }
 }
@@ -657,10 +667,9 @@ static void run(void) {
     this->sp = 0xfd;
     while (1) {
         if (this->elapsed_cycles % this->apu->channel4.timer_period == 0) {
-            bool feedback =
-                (this->apu->channel4.lfsr & 1) ^
-                ((this->apu->channel4.lfsr &
-                  (this->apu->channel4.mode ? 0x40 : 0x2)) != 0);
+            bool feedback = (this->apu->channel4.lfsr & 1) ^
+                            ((this->apu->channel4.lfsr &
+                              (this->apu->channel4.mode ? 0x40 : 0x2)) != 0);
             this->apu->channel4.lfsr >>= 1;
             this->apu->channel4.lfsr &= ~0b100000000000000;
             this->apu->channel4.lfsr |= feedback << 14;
@@ -673,6 +682,7 @@ static void run(void) {
             execute(opcode);
             this->remaining_cycles -= cycle_lookup[opcode];
             this->elapsed_cycles += cycle_lookup[opcode];
+            this->prev_inst[this->prev_inst_idx++] = opcode;
 
             if (this->ppu->enable_vblank_nmi && this->ppu->vblank) {
                 this->ppu->vblank = false;
@@ -680,6 +690,13 @@ static void run(void) {
                 push(this->p & ~(0x10));
                 set_status_bit(I, true);
                 this->pc = read_16le(0xfffa);
+            } else if(this->irq && !get_status_bit(I)) {
+                printf("a\n");
+                this->irq = false;
+                push_16le(this->pc);
+                push(this->p & ~(0x10));
+                set_status_bit(I, true);
+                this->pc = read_16le(0xfffe);
             }
 
             if (this->pc == this->run_until) {
@@ -688,7 +705,8 @@ static void run(void) {
             }
         }
 
-        while(this->remaining_cycles <= 0) {}
+        while (this->remaining_cycles <= 0) {
+        }
     }
 }
 

@@ -195,7 +195,7 @@ void *timer_cb(void *_) {
 
 void apu_init(apu_t *apu) {
     this = apu;
-    this->volume = 0.05;
+    this->volume = 0.01;
     this->channel4.lfsr = 1;
     this->channel4.timer_period = noise_timer_lookup[0];
     InitAudioDevice();
@@ -332,6 +332,14 @@ void dpcm_freq(uint8_t value) {
     this->channel5.irq_enable = value & 0x80;
     this->channel5.loop = value & 0x40;
     this->channel5.rate_index = value & 0xf;
+}
+
+void dpcm_sample_addr(uint8_t value) {
+    this->channel5.current_address = 0xc000 + value * 64;
+}
+
+void dpcm_sample_length(uint8_t value) {
+    this->channel5.sample_length = 16 * value + 1;
 }
 
 void dpcm_direct_load(uint8_t value) {

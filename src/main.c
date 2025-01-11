@@ -44,6 +44,7 @@ int main(void) {
         cpu.memory.cart.write = m004_cpu_write;
         ppu.memory.cart.read = m004_ppu_read;
         ppu.memory.cart.write = m004_ppu_write;
+        ppu.end_of_scanline_callback = m004_scanline_callback;
         break;
     default:
         printf("Unsupported mapper %d\n", mapper);

@@ -86,6 +86,12 @@ void cpu_mmu_write(cpu_mmu *this, uint16_t addr, uint8_t value) {
         case 0x11:
             dpcm_direct_load(value);
             break;
+        case 0x12:
+            dpcm_sample_addr(value);
+            break;
+        case 0x13:
+            dpcm_sample_length(value);
+            break;
         case 0x14:
             oam_dma(this, value);
             break;
@@ -96,7 +102,7 @@ void cpu_mmu_write(cpu_mmu *this, uint16_t addr, uint8_t value) {
             joystick_strobe(value);
             break;
         case 0x17:
-
+            frame_counter(value);
             break;
         default:
             printf("APU or IO write of 0x%02x at 0x%04x not implemented\n",

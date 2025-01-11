@@ -1,5 +1,6 @@
 #include "M004.h"
 #include <stdlib.h>
+#include "../cpu.h"
 
 static uint8_t prg_rom_size;
 static uint8_t chr_rom_size;
@@ -13,7 +14,10 @@ static bool chr_inversion = 0;
 static nametable_arrangement arrangement;
 static uint8_t *vram;
 static bool alt_nametable;
-static bool irq = false;
+static uint8_t irq_latch = 0;
+static uint8_t irq_counter = 0;
+static bool irq_enable = false;
+static bool irq_reload = false;
 
 void m004_init(FILE *f, uint8_t prg_size, uint8_t chr_size,
                nametable_arrangement arr, bool alt_nametable_layout) {
@@ -36,8 +40,7 @@ void m004_init(FILE *f, uint8_t prg_size, uint8_t chr_size,
 uint8_t m004_cpu_read(uint16_t addr) {
     if (addr >= 0x6000 && addr < 0x8000) {
         return prg_ram[addr - 0x6000];
-    }
-    else if (addr >= 0x8000) {
+    } else if (addr >= 0x8000) {
         if (prg_rom_bank_mode) {
             if (addr < 0xa000) {
                 return prg_rom[((prg_rom_size * 2) - 2) * 0x2000 + addr -
@@ -66,13 +69,18 @@ uint8_t m004_cpu_read(uint16_t addr) {
     }
 
     printf("Attempted to read from cartridge CPU memory at 0x%04x\n", addr);
-    exit(1);
+    // exit(1);
+    return 0;
 }
 
 void m004_cpu_write(uint16_t addr, uint8_t value) {
-    if (addr >= 0x6000 && addr < 0x8000) {
+    if (addr < 0x6000) {
+        printf("Attempted to write 0x%02x to cartridge CPU memory at 0x%04x\n",
+               value, addr);
+        // exit(1);
+    } else if (addr < 0x8000) {
         prg_ram[addr - 0x6000] = value;
-    } else if (addr >= 0x8000 && addr < 0xa000) {
+    } else if (addr < 0xa000) {
         if (addr % 2 == 0) {
             r_next = value & 0b111;
             prg_rom_bank_mode = value & 0x40;
@@ -92,18 +100,13 @@ void m004_cpu_write(uint16_t addr, uint8_t value) {
         }
     } else if (addr < 0xe000) {
         if (addr % 2 == 0) {
-            printf("TODO: IRQ latch\n");
+            irq_latch = value;
         } else {
-            printf("TODO: IRQ reload\n");
+            irq_reload = true;
         }
     } else {
-        irq = addr % 2;
-    }
-
-    if (addr < 0x6000) {
-        printf("Attempted to write 0x%02x to cartridge CPU memory at 0x%04x\n",
-               value, addr);
-        exit(1);
+        irq_enable = addr % 2;
+        if(!irq_enable) get_cpu_handle()->irq = false;
     }
 }
 
@@ -166,7 +169,8 @@ uint8_t m004_ppu_read(uint16_t addr) {
         }
     } else {
         printf("Attempted to read from cartridge PPU memory at 0x%04x\n", addr);
-        exit(1);
+        // exit(1);
+        return 0;
     }
 }
 
@@ -200,7 +204,7 @@ void m004_ppu_write(uint16_t addr, uint8_t value) {
     } else {
         printf("Attempted to write 0x%02x to cartridge PPU memory at 0x%04x\n",
                value, addr);
-        exit(1);
+        // exit(1);
     }
 }
 
@@ -209,4 +213,16 @@ void m004_free(void) {
     free(chr_rom);
     free(prg_ram);
     free(vram);
+}
+
+void m004_scanline_callback(uint8_t value) {
+    if(irq_counter == 0 && irq_enable) {
+        get_cpu_handle()->irq = true;
+    }
+
+    if(irq_counter == 0 || irq_reload) {
+        irq_counter = irq_latch;
+    } else {
+        irq_counter--;
+    }
 }

@@ -177,16 +177,6 @@ void cpp_imGui_render(cpu_t *cpu, ppu_t *ppu, apu_t *apu) {
         ImGui::Text("JOY1: 0x%02x (%s)", ppu->joy1_mirror, GetGamepadName(0));
     }
 
-    if(ImGui::CollapsingHeader("PC history")) {
-        ImGui::BeginTable("pchist", 1, ImGuiTableFlags_Borders | ImGuiTableFlags_RowBg);
-        for(uint16_t i = 0; i < 0x100; i++) {
-            ImGui::TableNextColumn();
-            ImGui::Text("0x%04x", cpu->prev_pc[i]);
-            ImGui::TableNextRow();
-        }
-        ImGui::EndTable();
-    }
-
     if (ImGui::CollapsingHeader("PPU")) {
         ImGui::Text("Scroll X: %d, Scroll Y: %d", ppu->scroll_x, ppu->scroll_y);
         ImGui::Text("Base Nametable: %d", ppu->base_nametable_address);

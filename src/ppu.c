@@ -104,7 +104,7 @@ void oam_addr(uint8_t value) { this->oam_addr = value; }
 
 void oam_dma(cpu_mmu *mem, uint8_t value) {
     for (uint8_t i = 0; i < 0x40; i++) {
-        this->oam[i].y_pos = cpu_mmu_read(mem, (value << 8) + 4 * i);
+        this->oam[i].y_pos = cpu_mmu_read(mem, (value << 8) + 4 * i) + 1;
         this->oam[i].tile_index = cpu_mmu_read(mem, (value << 8) + 4 * i + 1);
         this->oam[i].attributes = cpu_mmu_read(mem, (value << 8) + 4 * i + 2);
         this->oam[i].x_pos = cpu_mmu_read(mem, (value << 8) + 4 * i + 3);
@@ -245,12 +245,12 @@ void *ui_thread(void *_) {
                         bool flip_y = this->oam[i].attributes & 0x80;
                         uint8_t palette_idx = this->oam[i].attributes & 0x3;
                         bool in_front = this->oam[i].attributes & 0x20;
-                        uint8_t tile_y = y - (this->oam[i].y_pos);
+                        uint8_t tile_y = y - this->oam[i].y_pos;
                         uint8_t *pattern =
                             pattern_buffer[((this->oam[i].tile_index & 1) ? 256
                                                                           : 0) +
                                            (this->oam[i].tile_index & ~1) +
-                                           (tile_y > 7 ? 1 : 0)]
+                                           (((tile_y > 7) ^ flip_y) ? 1 : 0)]
                                           [flip_y ? (7 - (tile_y % 8))
                                                   : (tile_y % 8)];
 
@@ -275,45 +275,50 @@ void *ui_thread(void *_) {
                             }
                         }
 
-                    } else if (this->oam[i].y_pos <= y &&
-                               this->oam[i].y_pos + 8 > y) {
-                        bool flip_x = this->oam[i].attributes & 0x40;
-                        bool flip_y = this->oam[i].attributes & 0x80;
-                        uint8_t palette_idx = this->oam[i].attributes & 0x3;
-                        bool in_front = this->oam[i].attributes & 0x20;
-                        uint8_t tile_y = y - (this->oam[i].y_pos);
-                        uint8_t *pattern = pattern_buffer
-                            [(this->sprite_pattern_table_address ? 256 : 0) +
-                             this->oam[i].tile_index]
-                            [flip_y ? (7 - (tile_y % 8)) : (tile_y % 8)];
+                    } else {
+                        if (this->oam[i].y_pos <= y &&
+                            this->oam[i].y_pos + 8 > y) {
+                            bool flip_x = this->oam[i].attributes & 0x40;
+                            bool flip_y = this->oam[i].attributes & 0x80;
+                            uint8_t palette_idx = this->oam[i].attributes & 0x3;
+                            bool in_front = this->oam[i].attributes & 0x20;
+                            uint8_t tile_y = y - (this->oam[i].y_pos);
+                            uint8_t *pattern = pattern_buffer
+                                [(this->sprite_pattern_table_address ? 256
+                                                                     : 0) +
+                                 this->oam[i].tile_index]
+                                [flip_y ? (7 - (tile_y % 8)) : (tile_y % 8)];
 
-                        for (uint8_t x = 0; x < 8; x++) {
-                            uint16_t tile_x = flip_x ? (7 - x) : (x);
-                            if (i == 0 &&
-                                this->sprite_0_hit_buffer
-                                    [y][(this->oam[i].x_pos + x) % 256] &&
-                                pattern[tile_x] != 0) {
-                                this->sprite_0 = true;
-                                sprite_0_box_x[tile_y][x] =
-                                    this->oam[i].x_pos + x;
-                                sprite_0_box_y[tile_y][x] = y;
-                            }
+                            for (uint8_t x = 0; x < 8; x++) {
+                                uint16_t tile_x = flip_x ? (7 - x) : (x);
+                                if (i == 0 &&
+                                    this->sprite_0_hit_buffer
+                                        [y][(this->oam[i].x_pos + x) % 256] &&
+                                    pattern[tile_x] != 0) {
+                                    this->sprite_0 = true;
+                                    sprite_0_box_x[tile_y][x] =
+                                        this->oam[i].x_pos + x;
+                                    sprite_0_box_y[tile_y][x] = y;
+                                }
 
-                            if ((!this->sprite_0_hit_buffer
-                                      [y][(this->oam[i].x_pos + x) % 256] ||
-                                 !in_front) &&
-                                pattern[tile_x] != 0) {
-                                framebuffer[VIEWPORT_WIDTH * y +
-                                            (this->oam[i].x_pos + x) % 256] =
-                                    palette_lookup[this->memory.palette_ram
-                                                       [16 + palette_idx * 4 +
-                                                        pattern[tile_x]]];
+                                if ((!this->sprite_0_hit_buffer
+                                          [y][(this->oam[i].x_pos + x) % 256] ||
+                                     !in_front) &&
+                                    pattern[tile_x] != 0) {
+                                    framebuffer[VIEWPORT_WIDTH * y +
+                                                (this->oam[i].x_pos + x) %
+                                                    256] = palette_lookup
+                                        [this->memory
+                                             .palette_ram[16 + palette_idx * 4 +
+                                                          pattern[tile_x]]];
+                                }
                             }
                         }
                     }
                 }
 
             get_cpu_handle()->remaining_cycles += CYCLES_PER_LINE;
+            if(this->end_of_scanline_callback != NULL) this->end_of_scanline_callback(y);
         }
         this->vblank = true;
 
