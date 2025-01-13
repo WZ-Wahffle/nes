@@ -154,8 +154,11 @@ typedef struct {
     volatile bool step;
     int32_t run_until;
 
-    uint8_t prev_inst[0x10000];
+    uint8_t prev_inst[0x1000];
+    uint16_t prev_pc[0x1000];
+    int32_t prev_bank[0x1000];
     uint16_t prev_inst_idx;
+    int32_t (*cpu_addr_to_bank_callback)(uint16_t);
 } cpu_t;
 
 typedef enum { NMI, RESET, BRK } interrupt_src;

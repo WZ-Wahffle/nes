@@ -10,5 +10,6 @@ void m000_cpu_write(uint16_t, uint8_t);
 uint8_t m000_ppu_read(uint16_t);
 void m000_ppu_write(uint16_t, uint8_t);
 void m000_free(void);
+int32_t m000_get_bank_from_cpu_addr(uint16_t);
 
 #endif

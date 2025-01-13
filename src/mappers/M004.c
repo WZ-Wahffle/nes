@@ -226,3 +226,21 @@ void m004_scanline_callback(uint8_t value) {
         irq_counter--;
     }
 }
+
+int32_t m004_get_bank_from_cpu_addr(uint16_t addr) {
+    if(addr < 0x8000) {
+        return -1;
+    }
+
+    if(prg_rom_bank_mode) {
+        if(addr < 0xa000) return r[prg_rom_size * 2 - 2];
+        if(addr < 0xc000) return r[6];
+        if(addr < 0xe000) return r[7];
+        return r[prg_rom_size * 2 - 1];
+    } else {
+        if(addr < 0xa000) return r[6];
+        if(addr < 0xc000) return r[7];
+        if(addr < 0xe000) return r[prg_rom_size * 2 - 2];
+        return r[prg_rom_size * 2 - 1];
+    }
+}

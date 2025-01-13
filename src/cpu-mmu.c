@@ -65,6 +65,8 @@ void cpu_mmu_write(cpu_mmu *this, uint16_t addr, uint8_t value) {
         case 0x08:
             triangle_linear_counter(value);
             break;
+        case 0x09:
+            break;
         case 0x0a:
             triangle_timer_low(value);
             break;
@@ -73,6 +75,8 @@ void cpu_mmu_write(cpu_mmu *this, uint16_t addr, uint8_t value) {
             break;
         case 0x0c:
             noise_config(value);
+            break;
+        case 0x0d:
             break;
         case 0x0e:
             noise_period(value);
@@ -136,7 +140,7 @@ uint8_t cpu_mmu_read(cpu_mmu *this, uint16_t addr) {
         default:
             printf("PPU read at 0x%04x not implemented\n", addr);
             return 0;
-            // exit(1);
+            exit(1);
         }
     }
 

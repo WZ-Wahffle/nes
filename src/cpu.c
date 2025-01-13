@@ -25,7 +25,7 @@ uint8_t cycle_lookup[] = {
 
 void cpu_init(cpu_t *cpu) {
     this = cpu;
-    for (uint32_t i = 0; i < 0x10000; i++) {
+    for (uint32_t i = 0; i < 0x1000; i++) {
         this->prev_inst[i] = 0;
     }
 }
@@ -654,10 +654,6 @@ static void execute(uint8_t opcode) {
     default:
         printf("Opcode 0x%02x at 0x%04x not implemented\n", opcode,
                this->pc - 1);
-        printf("Stack trace: \n");
-        for(uint32_t i = this->prev_inst_idx; i != this->prev_inst_idx-1; i++) {
-            printf("0x%04x: 0x%02x\n", i, this->prev_inst[i]);
-        }
         exit(1);
     }
 }
@@ -679,10 +675,13 @@ static void run(void) {
             this->step = false;
 
             uint8_t opcode = read_next_byte();
+            this->prev_pc[this->prev_inst_idx] = this->pc-1;
+            this->prev_bank[this->prev_inst_idx] = this->cpu_addr_to_bank_callback(this->pc-1);
+            this->prev_inst[this->prev_inst_idx++] = opcode;
+            this->prev_inst_idx %= 0x1000;
             execute(opcode);
             this->remaining_cycles -= cycle_lookup[opcode];
             this->elapsed_cycles += cycle_lookup[opcode];
-            this->prev_inst[this->prev_inst_idx++] = opcode;
 
             if (this->ppu->enable_vblank_nmi && this->ppu->vblank) {
                 this->ppu->vblank = false;
@@ -691,7 +690,6 @@ static void run(void) {
                 set_status_bit(I, true);
                 this->pc = read_16le(0xfffa);
             } else if(this->irq && !get_status_bit(I)) {
-                printf("a\n");
                 this->irq = false;
                 push_16le(this->pc);
                 push(this->p & ~(0x10));

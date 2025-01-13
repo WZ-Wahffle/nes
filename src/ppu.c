@@ -102,6 +102,10 @@ void ppu_scroll(uint8_t value) {
 
 void oam_addr(uint8_t value) { this->oam_addr = value; }
 
+void oam_data_write(uint8_t value) {
+
+}
+
 void oam_dma(cpu_mmu *mem, uint8_t value) {
     for (uint8_t i = 0; i < 0x40; i++) {
         this->oam[i].y_pos = cpu_mmu_read(mem, (value << 8) + 4 * i) + 1;
@@ -238,7 +242,7 @@ void *ui_thread(void *_) {
 
             // sprite drawing
             if (this->sprite_enable)
-                for (int8_t i = 63; i >= 0; i--) {
+                for (int8_t i = 0; i < 64; i++) {
                     if (this->large_sprites && this->oam[i].y_pos <= y &&
                         this->oam[i].y_pos + 16 > y) {
                         bool flip_x = this->oam[i].attributes & 0x40;

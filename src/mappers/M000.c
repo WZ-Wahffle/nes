@@ -120,3 +120,8 @@ void m000_free(void) {
     free(pattern_table);
     free(vram);
 }
+
+int32_t m000_get_bank_from_cpu_addr(uint16_t addr) {
+    if(addr < 0x8000) return -1;
+    return 0;
+}
