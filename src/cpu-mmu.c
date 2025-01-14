@@ -100,7 +100,7 @@ void cpu_mmu_write(cpu_mmu *this, uint16_t addr, uint8_t value) {
             oam_dma(this, value);
             break;
         case 0x15:
-            apu_status(value);
+            apu_status_write(value);
             break;
         case 0x16:
             joystick_strobe(value);
@@ -146,6 +146,9 @@ uint8_t cpu_mmu_read(cpu_mmu *this, uint16_t addr) {
 
     else if (addr >= 0x4000 && addr < 0x4018) {
         switch (addr - 0x4000) {
+            case 0x15:
+            return apu_status_read();
+            break;
         case 0x16:
             return joystick_read_1();
             break;

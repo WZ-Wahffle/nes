@@ -7,7 +7,8 @@ apu_t *get_apu_handle(void);
 
 void apu_init(apu_t *apu);
 
-void apu_status(uint8_t value);
+uint8_t apu_status_read(void);
+void apu_status_write(uint8_t value);
 
 void pulse_1_config(uint8_t value);
 void pulse_1_timer_low(uint8_t value);

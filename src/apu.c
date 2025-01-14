@@ -46,7 +46,7 @@ float square_wave(float x, duty_cycle c) {
 void noise_callback(void* buffer, uint32_t count) {
     int16_t* out = (int16_t*)buffer;
     for(uint32_t i = 0; i < count; i++) {
-        out[i] = (((this->channel4.lfsr & 1) ? 0 : 32000) *
+        out[i] = (((this->channel4.lfsr & 1) ? -32000 : 32000) *
             ((this->channel4.length_counter == 0) ? 0 : 1) *
             this->volume);
     }
@@ -218,7 +218,14 @@ void apu_init(apu_t *apu) {
     pthread_create(&apu_clock, NULL, timer_cb, NULL);
 }
 
-void apu_status(uint8_t value) {
+uint8_t apu_status_read(void) {
+    return ((this->channel1.length_counter > 0) << 0) |
+    ((this->channel2.length_counter > 0) << 1) |
+    ((this->channel3.length_counter > 0) << 2) |
+    ((this->channel4.length_counter > 0) << 3);
+}
+
+void apu_status_write(uint8_t value) {
     this->channel1.enable = value & 0b1;
     this->channel2.enable = value & 0b10;
     if ((this->channel3.enable = (value & 0b100)) == false) {

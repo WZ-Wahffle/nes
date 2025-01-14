@@ -2,6 +2,7 @@
 #include "cpu.h"
 #include "mappers/M000.h"
 #include "mappers/M001.h"
+#include "mappers/M002.h"
 #include "mappers/M004.h"
 #include "ppu.h"
 #include "types.h"
@@ -23,7 +24,7 @@ void exit_callback(void) {
 }
 
 int main(void) {
-    FILE *f = fopen("resources/tetris.nes", "rb");
+    FILE *f = fopen("resources/tloz.nes", "rb");
     int8_t header[16] = {0};
     fread(header, 16, 1, f);
     if (strncmp((char[]){'N', 'E', 'S', 0x1a}, (char *)header, 4) != 0) {
@@ -52,12 +53,20 @@ int main(void) {
         ppu.memory.cart.write = m000_ppu_write;
         break;
     case 0x01:
-        m001_init(f, header[4], header[5], header[6] & 1);
+        m001_init(f, header[4], header[5]);
         cpu.memory.cart.read = m001_cpu_read;
         cpu.memory.cart.write = m001_cpu_write;
-        cpu.cpu_addr_to_bank_callback = m000_get_bank_from_cpu_addr;
+        cpu.cpu_addr_to_bank_callback = m001_get_bank_from_cpu_addr;
         ppu.memory.cart.read = m001_ppu_read;
         ppu.memory.cart.write = m001_ppu_write;
+        break;
+    case 0x02:
+        m002_init(f, header[4], header[6] & 1);
+        cpu.memory.cart.read = m002_cpu_read;
+        cpu.memory.cart.write = m002_cpu_write;
+        cpu.cpu_addr_to_bank_callback = m000_get_bank_from_cpu_addr;
+        ppu.memory.cart.read = m002_ppu_read;
+        ppu.memory.cart.write = m002_ppu_write;
         break;
     case 0x04:
         m004_init(f, header[4], header[5], header[6] & 1, header[6] & 0x80);
