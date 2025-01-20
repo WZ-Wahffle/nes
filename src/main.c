@@ -24,7 +24,7 @@ void exit_callback(void) {
 }
 
 int main(void) {
-    FILE *f = fopen("resources/dk.nes", "rb");
+    FILE *f = fopen("resources/tloz.nes", "rb");
     int8_t header[16] = {0};
     fread(header, 16, 1, f);
     if (strncmp((char[]){'N', 'E', 'S', 0x1a}, (char *)header, 4) != 0) {

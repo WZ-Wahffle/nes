@@ -916,7 +916,7 @@ void adc(addressing_mode mode) {
     set_status_bit(C, result > 0xff);
     set_status_bit(V,
                    ((operand ^ result) & (this->a ^ result) & 0x80) !=
-                       0); // TODO: test this
+                       0);
     this->a = result;
 }
 
@@ -928,7 +928,7 @@ void sbc(addressing_mode mode) {
     set_status_bit(C, result < 0x100);
     set_status_bit(V,
                    ((this->a ^ operand) & 0x80) &&
-                       ((this->a ^ result) & 0x80)); // TODO: test this
+                       ((this->a ^ result) & 0x80));
     this->a = result & 0xff;
 }
 

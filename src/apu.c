@@ -33,8 +33,6 @@ float triangle_wave(float x) {
 }
 
 float square_wave(float x, duty_cycle c) {
-    while (x >= 2 * M_PI)
-        x -= 2 * M_PI;
     static float duty_cycle_lookup[4][8] = {
         {-1, 1, -1, -1, -1, -1, -1, -1},
         {-1, 1, 1, -1, -1, -1, -1, -1},
@@ -42,16 +40,18 @@ float square_wave(float x, duty_cycle c) {
         {1, -1, -1, 1, 1, 1, 1, 1},
     };
 
-    return duty_cycle_lookup[c][(uint8_t)floor(x / M_PI_4)];
+    return duty_cycle_lookup[c][((uint8_t)floor(x / M_PI_4)) % 8];
 }
 
 void noise_callback(void *buffer, uint32_t count) {
-    static float pending_shifts = 0;
+    static float pending_shifts = 0.f;
+    static float timer_120hz = 0.f;
     int16_t *out = (int16_t *)buffer;
     for (uint32_t i = 0; i < count; i++) {
         out[i] = (((this->channel4.lfsr & 1) ? 0 : 32000) *
                   ((this->channel4.length_counter == 0) ? 0 : 1) *
                   (this->channel4.volume_level / 15.f) * this->volume);
+
         pending_shifts +=
             (CPU_FREQ / this->channel4.timer_period) / SAMPLE_RATE;
         while (pending_shifts > 0) {
@@ -62,12 +62,21 @@ void noise_callback(void *buffer, uint32_t count) {
             this->channel4.lfsr |= feedback << 14;
             pending_shifts--;
         }
+
+        timer_120hz += (1 / SAMPLE_RATE);
+        while (timer_120hz > 1 / 120.f) {
+            if (!this->channel4.loop && this->channel4.length_counter > 0) {
+                this->channel4.length_counter--;
+            }
+            timer_120hz -= 1 / 120.f;
+        }
     }
 }
 
 void triangle_callback(void *buffer, uint32_t count) {
     static float sine_idx = 0.f;
-    float incr = this->channel3.frequency / SAMPLE_RATE;
+    static float timer_120hz = 0.f;
+    static float timer_240hz = 0.f;
     int16_t *out = (int16_t *)buffer;
 
     for (uint32_t i = 0; i < count; i++) {
@@ -75,16 +84,33 @@ void triangle_callback(void *buffer, uint32_t count) {
                            ((this->channel3.length_counter == 0) ? 0 : 1) *
                            ((this->channel3.linear_counter == 0) ? 0 : 1) *
                            this->volume);
-        sine_idx += incr;
-        if (sine_idx > 1.f)
-            sine_idx -= 1.f;
+        sine_idx += this->channel3.frequency / SAMPLE_RATE;
+        while(sine_idx > 1) sine_idx -= 1;
+
+
+        timer_120hz += (1 / SAMPLE_RATE);
+        while (timer_120hz > 1 / 120.f) {
+            if (!this->channel3.length_counter_halt &&
+                this->channel3.length_counter > 0) {
+                this->channel3.length_counter--;
+            }
+            timer_120hz -= 1 / 120.f;
+        }
+
+        timer_240hz += (1 / SAMPLE_RATE);
+        while (timer_240hz > 1 / 240.f) {
+            if (this->channel3.linear_counter > 0)
+                this->channel3.linear_counter--;
+            timer_240hz -= 1 / 240.f;
+        }
     }
 }
 
 void square1_callback(void *buffer, uint32_t count) {
     static float sine_idx = 0.f;
     static float pending_envelope_ticks = 0.f;
-    float incr = this->channel1.frequency / SAMPLE_RATE;
+    static float pending_sweep_ticks = 0.f;
+    static float timer_120hz = 0.f;
     int16_t *out = (int16_t *)buffer;
 
     for (uint32_t i = 0; i < count; i++) {
@@ -101,15 +127,44 @@ void square1_callback(void *buffer, uint32_t count) {
                            : 1) *
                       ((this->channel1.length_counter == 0) ? 0 : 1) *
                       this->volume);
-        sine_idx += incr;
-        if (sine_idx > 1.f)
-            sine_idx -= 1.f;
-        pending_envelope_ticks += (1 / SAMPLE_RATE) / count;
-        while(pending_envelope_ticks > (this->channel1.envelope_level + 1) / 240.f) {
-            if(this->channel1.envelope_decay_counter == 0) {
-                if(this->channel1.loop) this->channel1.envelope_decay_counter = 0xf;
-            } else this->channel1.envelope_decay_counter--;
-            pending_envelope_ticks -= (this->channel1.envelope_level + 1) / 240.f;
+        sine_idx += this->channel1.frequency / SAMPLE_RATE;
+        while(sine_idx > 1) sine_idx -= 1;
+
+        pending_envelope_ticks += (1 / SAMPLE_RATE);
+        while (pending_envelope_ticks >
+               (this->channel1.envelope_level + 1) / 240.f) {
+            if (this->channel1.envelope_decay_counter == 0) {
+                if (this->channel1.loop)
+                    this->channel1.envelope_decay_counter = 0xf;
+            } else
+                this->channel1.envelope_decay_counter--;
+            pending_envelope_ticks -=
+                (this->channel1.envelope_level + 1) / 240.f;
+        }
+
+        pending_sweep_ticks += (1 / SAMPLE_RATE);
+        while (pending_sweep_ticks > (this->channel1.sweep_speed + 1) / 120.f) {
+            if (this->channel1.sweep_enable && this->channel1.timer >= 8 &&
+                this->channel1.sweep_shift_count != 0) {
+                uint16_t offset =
+                    this->channel1.timer >> this->channel1.sweep_shift_count;
+                if (this->channel1.sweep_negate) {
+                    this->channel1.timer -= offset;
+                } else {
+                    this->channel1.timer += offset;
+                }
+                this->channel1.frequency =
+                    CPU_FREQ / (16.f * (this->channel1.timer + 1));
+            }
+            pending_sweep_ticks -= (this->channel1.sweep_speed + 1) / 120.f;
+        }
+
+        timer_120hz += (1 / SAMPLE_RATE);
+        while (timer_120hz > 1 / 120.f) {
+            if (!this->channel1.loop && this->channel1.length_counter > 0) {
+                this->channel1.length_counter--;
+            }
+            timer_120hz -= 1 / 120.f;
         }
     }
 }
@@ -117,8 +172,10 @@ void square1_callback(void *buffer, uint32_t count) {
 void square2_callback(void *buffer, uint32_t count) {
     static float sine_idx = 0.f;
     static float pending_envelope_ticks = 0.f;
-    float incr = this->channel2.frequency / SAMPLE_RATE;
+    static float pending_sweep_ticks = 0.f;
+    static float timer_120hz = 0.f;
     int16_t *out = (int16_t *)buffer;
+
 
     for (uint32_t i = 0; i < count; i++) {
         out[i] =
@@ -134,15 +191,44 @@ void square2_callback(void *buffer, uint32_t count) {
                            : 1) *
                       ((this->channel2.length_counter == 0) ? 0 : 1) *
                       this->volume);
-        sine_idx += incr;
-        if (sine_idx > 1.f)
-            sine_idx -= 1.f;
-        pending_envelope_ticks += (1 / SAMPLE_RATE) / count;
-        while(pending_envelope_ticks > (this->channel2.envelope_level + 1) / 240.f) {
-            if(this->channel2.envelope_decay_counter == 0) {
-                if(this->channel2.loop) this->channel2.envelope_decay_counter = 0xf;
-            } else this->channel2.envelope_decay_counter--;
-            pending_envelope_ticks -= (this->channel2.envelope_level + 1) / 240.f;
+        sine_idx += this->channel2.frequency / SAMPLE_RATE;
+        while(sine_idx > 1) sine_idx -= 1;
+
+        pending_envelope_ticks += (1 / SAMPLE_RATE);
+        while (pending_envelope_ticks >
+               (this->channel2.envelope_level + 1) / 240.f) {
+            if (this->channel2.envelope_decay_counter == 0) {
+                if (this->channel2.loop)
+                    this->channel2.envelope_decay_counter = 0xf;
+            } else
+                this->channel2.envelope_decay_counter--;
+            pending_envelope_ticks -=
+                (this->channel2.envelope_level + 1) / 240.f;
+        }
+
+        pending_sweep_ticks += (1 / SAMPLE_RATE);
+        while (pending_sweep_ticks > (this->channel2.sweep_speed + 1) / 120.f) {
+            if (this->channel2.sweep_enable && this->channel2.timer >= 8 &&
+                this->channel2.timer < 0x800 && this->channel2.sweep_shift_count != 0) {
+                uint16_t offset =
+                    this->channel2.timer >> this->channel2.sweep_shift_count;
+                if (this->channel2.sweep_negate) {
+                    this->channel2.timer -= offset + 1;
+                } else {
+                    this->channel2.timer += offset;
+                }
+                this->channel2.frequency =
+                    CPU_FREQ / (16.f * (this->channel2.timer + 1));
+            }
+            pending_sweep_ticks -= (this->channel2.sweep_speed + 1) / 120.f;
+        }
+
+        timer_120hz += (1 / SAMPLE_RATE);
+        while (timer_120hz > 1 / 120.f) {
+            if (!this->channel2.loop && this->channel2.length_counter > 0) {
+                this->channel2.length_counter--;
+            }
+            timer_120hz -= 1 / 120.f;
         }
     }
 }
@@ -155,59 +241,11 @@ void *timer_cb(void *_) {
     uint8_t channel2_divider_period = 1;
     while (1) {
         usleep(this->long_sequence ? 5208 : 4166);
-        if (!this->channel1.loop && this->channel1.length_counter > 0) {
-            this->channel1.length_counter--;
-        }
-        if (!this->channel2.loop && this->channel2.length_counter > 0) {
-            this->channel2.length_counter--;
-        }
-        if (!this->channel3.length_counter_halt &&
-            this->channel3.length_counter > 0) {
-            this->channel3.length_counter--;
-        }
-        if (counter % 2 == 0) {
-            if (!this->channel4.loop && this->channel4.length_counter > 0) {
-                this->channel4.length_counter--;
-            }
-
-            if (--channel1_divider_period == 0) {
-                channel1_divider_period = this->channel1.sweep_speed + 1;
-                if (this->channel1.sweep_enable && this->channel1.timer >= 8 && this->channel1.sweep_shift_count != 0) {
-                    int16_t offset = this->channel1.timer >>
-                                     this->channel1.sweep_shift_count;
-                    if (this->channel1.sweep_negate) {
-                        this->channel1.timer -= offset + 1;
-                    } else if (this->channel1.timer + offset < 0x800) {
-                        this->channel1.timer += offset;
-                    }
-                    this->channel1.frequency =
-                        CPU_FREQ / (16.f * (this->channel1.timer + 1));
-                }
-            }
-
-            if (--channel2_divider_period == 0) {
-                channel2_divider_period = this->channel2.sweep_speed + 1;
-                if (this->channel2.sweep_enable && this->channel2.timer >= 8 && this->channel2.sweep_shift_count != 0) {
-                    int16_t offset = this->channel2.timer >>
-                                     this->channel2.sweep_shift_count;
-                    if (this->channel2.sweep_negate) {
-                        this->channel2.timer -= offset;
-                    } else if (this->channel2.timer + offset < 0x800) {
-                        this->channel2.timer += offset;
-                    }
-                    this->channel2.frequency =
-                        CPU_FREQ / (16.f * (this->channel2.timer + 1));
-                }
-            }
-        }
 
         if (counter % 4 == 0 && !this->long_sequence &&
             !this->interrupt_inhibit) {
             get_cpu_handle()->irq = true;
         }
-
-        if (this->channel3.linear_counter > 0)
-            this->channel3.linear_counter--;
 
         counter++;
     }
@@ -221,7 +259,7 @@ void apu_init(apu_t *apu) {
     this->channel4.lfsr = 1;
     this->channel4.timer_period = noise_timer_lookup[0];
     InitAudioDevice();
-    SetAudioStreamBufferSizeDefault(512);
+    SetAudioStreamBufferSizeDefault(1024);
     this->channel1.stream = LoadAudioStream(SAMPLE_RATE, 16, 1);
     SetAudioStreamCallback(this->channel1.stream, square1_callback);
     PlayAudioStream(this->channel1.stream);
