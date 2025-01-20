@@ -15,8 +15,8 @@ typedef struct {
     duty_cycle duty;
     bool loop;
     bool constant_volume;
-    uint8_t volume_level_speed;
-    uint8_t volume_level;
+    uint8_t envelope_level;
+    uint8_t envelope_decay_counter;
     bool sweep_enable;
     uint8_t sweep_speed;
     bool sweep_negate;
@@ -43,6 +43,7 @@ typedef struct {
     bool loop;
     bool constant_volume;
     uint8_t volume_level_speed;
+    uint8_t volume_level;
     bool mode;
     uint16_t timer_period;
     uint16_t length_counter;
@@ -132,7 +133,7 @@ typedef struct {
 
     volatile bool sprite_0_hit_buffer[VIEWPORT_HEIGHT][VIEWPORT_WIDTH];
 
-    void (*end_of_scanline_callback)(uint8_t);
+    void (*a12_end_of_scanline_callback)(void);
 } ppu_t;
 
 typedef struct {
@@ -146,6 +147,8 @@ typedef struct {
     uint8_t sp;
     uint8_t p;
     bool irq;
+    bool i_clear_pending;
+    bool i_set_pending;
 
     volatile double remaining_cycles;
     volatile uint64_t elapsed_cycles;

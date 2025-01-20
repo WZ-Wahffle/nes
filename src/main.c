@@ -14,7 +14,7 @@
 
 void exit_callback(void) {
     cpu_t *cpu = get_cpu_handle();
-    printf("Stack trace: \n");
+    printf("At bank %d, Stack trace: \n", cpu->cpu_addr_to_bank_callback(cpu->pc));
     for (uint32_t i = cpu->prev_inst_idx; i != cpu->prev_inst_idx - 1; i++) {
         if (i == 0x1000)
             i = 0;
@@ -24,7 +24,7 @@ void exit_callback(void) {
 }
 
 int main(void) {
-    FILE *f = fopen("resources/tloz.nes", "rb");
+    FILE *f = fopen("resources/dk.nes", "rb");
     int8_t header[16] = {0};
     fread(header, 16, 1, f);
     if (strncmp((char[]){'N', 'E', 'S', 0x1a}, (char *)header, 4) != 0) {
@@ -75,7 +75,7 @@ int main(void) {
         cpu.cpu_addr_to_bank_callback = m004_get_bank_from_cpu_addr;
         ppu.memory.cart.read = m004_ppu_read;
         ppu.memory.cart.write = m004_ppu_write;
-        ppu.end_of_scanline_callback = m004_scanline_callback;
+        ppu.a12_end_of_scanline_callback = m004_scanline_callback;
         break;
     default:
         printf("Unsupported mapper %d\n", mapper);

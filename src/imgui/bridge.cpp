@@ -190,12 +190,17 @@ void cpp_imGui_render(cpu_t *cpu, ppu_t *ppu, apu_t *apu) {
     }
 
     if(ImGui::CollapsingHeader("APU")) {
-        ImGui::Text("Channel 1 volume: %f", apu->channel1.volume_level / 15.f);
-        ImGui::Text("Channel 1 envelope speed: %d", apu->channel1.volume_level_speed);
+        ImGui::Text("Channel 1 volume: %f", apu->channel1.envelope_level / 15.f);
+        ImGui::Text("Channel 1 envelope enable: %s", !apu->channel1.constant_volume ? "true" : "false");
+        ImGui::Text("Channel 1 loop: %s", apu->channel1.loop ? "true" : "false");
+        ImGui::Text("Channel 1 envelope speed: %d", apu->channel1.envelope_decay_counter);
         ImGui::Text("Channel 1 frequency: %f", apu->channel1.frequency);
         ImGui::Text("Channel 1 length timer: %d", apu->channel1.length_counter);
-        ImGui::Text("Channel 2 volume: %f", apu->channel2.volume_level / 15.f);
-        ImGui::Text("Channel 2 envelope speed: %d", apu->channel2.volume_level_speed);
+        ImGui::NewLine();
+        ImGui::Text("Channel 2 volume: %f", apu->channel2.envelope_level / 15.f);
+        ImGui::Text("Channel 2 envelope enable: %s", !apu->channel2.constant_volume ? "true" : "false");
+        ImGui::Text("Channel 2 loop: %s", apu->channel2.loop ? "true" : "false");
+        ImGui::Text("Channel 2 envelope speed: %d", apu->channel2.envelope_decay_counter);
         ImGui::Text("Channel 2 frequency: %f", apu->channel2.frequency);
         ImGui::Text("Channel 2 length timer: %d", apu->channel2.length_counter);
     }

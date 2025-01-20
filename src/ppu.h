@@ -3,8 +3,6 @@
 #include <raylib.h>
 #include "types.h"
 
-#include "imgui/bridge.h"
-
 void ppu_init(ppu_t* ppu);
 void ppu_ctrl(uint8_t value);
 void ppu_mask(uint8_t value);
@@ -14,6 +12,7 @@ uint8_t ppu_data_read(void);
 void ppu_data_write(uint8_t value);
 void ppu_scroll(uint8_t value);
 void oam_addr(uint8_t value);
+void oam_data_write(uint8_t value);
 void oam_dma(cpu_mmu* mem, uint8_t value);
 void joystick_strobe(uint8_t value);
 uint8_t joystick_read_1(void);

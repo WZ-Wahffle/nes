@@ -20,6 +20,9 @@ void cpu_mmu_write(cpu_mmu *this, uint16_t addr, uint8_t value) {
         case 0x3:
             oam_addr(value);
             break;
+        case 0x4:
+            oam_data_write(value);
+            break;
         case 0x5:
             ppu_scroll(value);
             break;
@@ -146,7 +149,7 @@ uint8_t cpu_mmu_read(cpu_mmu *this, uint16_t addr) {
 
     else if (addr >= 0x4000 && addr < 0x4018) {
         switch (addr - 0x4000) {
-            case 0x15:
+        case 0x15:
             return apu_status_read();
             break;
         case 0x16:

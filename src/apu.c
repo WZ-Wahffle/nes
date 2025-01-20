@@ -1,4 +1,5 @@
 #include "apu.h"
+#include "cpu.h"
 #include "types.h"
 #include <math.h>
 #include <pthread.h>
@@ -9,6 +10,7 @@
 #include <unistd.h>
 
 #define SAMPLE_RATE 44100.f
+#define CPU_FREQ 1789773.f
 
 static apu_t *this = NULL;
 
@@ -43,77 +45,105 @@ float square_wave(float x, duty_cycle c) {
     return duty_cycle_lookup[c][(uint8_t)floor(x / M_PI_4)];
 }
 
-void noise_callback(void* buffer, uint32_t count) {
-    int16_t* out = (int16_t*)buffer;
-    for(uint32_t i = 0; i < count; i++) {
-        out[i] = (((this->channel4.lfsr & 1) ? -32000 : 32000) *
-            ((this->channel4.length_counter == 0) ? 0 : 1) *
-            this->volume);
+void noise_callback(void *buffer, uint32_t count) {
+    static float pending_shifts = 0;
+    int16_t *out = (int16_t *)buffer;
+    for (uint32_t i = 0; i < count; i++) {
+        out[i] = (((this->channel4.lfsr & 1) ? 0 : 32000) *
+                  ((this->channel4.length_counter == 0) ? 0 : 1) *
+                  (this->channel4.volume_level / 15.f) * this->volume);
+        pending_shifts +=
+            (CPU_FREQ / this->channel4.timer_period) / SAMPLE_RATE;
+        while (pending_shifts > 0) {
+            bool feedback =
+                (this->channel4.lfsr & 1) ^
+                ((this->channel4.lfsr >> (this->channel4.mode ? 6 : 1)) & 1);
+            this->channel4.lfsr >>= 1;
+            this->channel4.lfsr |= feedback << 14;
+            pending_shifts--;
+        }
     }
 }
 
 void triangle_callback(void *buffer, uint32_t count) {
-    static float sineIdx = 0.f;
+    static float sine_idx = 0.f;
     float incr = this->channel3.frequency / SAMPLE_RATE;
     int16_t *out = (int16_t *)buffer;
 
     for (uint32_t i = 0; i < count; i++) {
-        out[i] = (int16_t)(32000.f * triangle_wave(2 * M_PI * sineIdx) *
-                 ((this->channel3.length_counter == 0) ? 0 : 1) *
-                 ((this->channel3.linear_counter == 0) ? 0 : 1) *
-                 this->volume
-        );
-        sineIdx += incr;
-        if (sineIdx > 1.f)
-            sineIdx -= 1.f;
+        out[i] = (int16_t)(32000.f * triangle_wave(2 * M_PI * sine_idx) *
+                           ((this->channel3.length_counter == 0) ? 0 : 1) *
+                           ((this->channel3.linear_counter == 0) ? 0 : 1) *
+                           this->volume);
+        sine_idx += incr;
+        if (sine_idx > 1.f)
+            sine_idx -= 1.f;
     }
 }
 
 void square1_callback(void *buffer, uint32_t count) {
-    static float sineIdx = 0.f;
+    static float sine_idx = 0.f;
+    static float pending_envelope_ticks = 0.f;
     float incr = this->channel1.frequency / SAMPLE_RATE;
     int16_t *out = (int16_t *)buffer;
 
     for (uint32_t i = 0; i < count; i++) {
         out[i] =
             (int16_t)(32000.f *
-                      square_wave(2 * M_PI * sineIdx, this->channel1.duty) *
+                      square_wave(2 * M_PI * sine_idx, this->channel1.duty) *
                       (this->channel1.enable ? 1 : 0) *
-                      (this->channel1.volume_level_speed / 15.f) *
+                      (this->channel1.constant_volume
+                           ? (this->channel1.envelope_level / 15.f)
+                           : (this->channel1.envelope_decay_counter / 15.f)) *
                       ((this->channel1.timer < 8 ||
                         this->channel1.timer > 0x7ff)
                            ? 0
                            : 1) *
                       ((this->channel1.length_counter == 0) ? 0 : 1) *
-                      this->volume
-            );
-        sineIdx += incr;
-        if (sineIdx > 1.f)
-            sineIdx -= 1.f;
+                      this->volume);
+        sine_idx += incr;
+        if (sine_idx > 1.f)
+            sine_idx -= 1.f;
+        pending_envelope_ticks += (1 / SAMPLE_RATE) / count;
+        while(pending_envelope_ticks > (this->channel1.envelope_level + 1) / 240.f) {
+            if(this->channel1.envelope_decay_counter == 0) {
+                if(this->channel1.loop) this->channel1.envelope_decay_counter = 0xf;
+            } else this->channel1.envelope_decay_counter--;
+            pending_envelope_ticks -= (this->channel1.envelope_level + 1) / 240.f;
+        }
     }
 }
 
 void square2_callback(void *buffer, uint32_t count) {
-    static float sineIdx = 0.f;
+    static float sine_idx = 0.f;
+    static float pending_envelope_ticks = 0.f;
     float incr = this->channel2.frequency / SAMPLE_RATE;
     int16_t *out = (int16_t *)buffer;
 
     for (uint32_t i = 0; i < count; i++) {
         out[i] =
             (int16_t)(32000.f *
-                      square_wave(2 * M_PI * sineIdx, this->channel2.duty) *
+                      square_wave(2 * M_PI * sine_idx, this->channel2.duty) *
                       (this->channel2.enable ? 1 : 0) *
-                      (this->channel2.volume_level_speed / 15.f) *
+                      (this->channel2.constant_volume
+                           ? (this->channel2.envelope_level / 15.f)
+                           : (this->channel2.envelope_decay_counter / 15.f)) *
                       ((this->channel2.timer < 8 ||
                         this->channel2.timer > 0x7ff)
                            ? 0
                            : 1) *
                       ((this->channel2.length_counter == 0) ? 0 : 1) *
-                      this->volume
-            );
-        sineIdx += incr;
-        if (sineIdx > 1.f)
-            sineIdx -= 1.f;
+                      this->volume);
+        sine_idx += incr;
+        if (sine_idx > 1.f)
+            sine_idx -= 1.f;
+        pending_envelope_ticks += (1 / SAMPLE_RATE) / count;
+        while(pending_envelope_ticks > (this->channel2.envelope_level + 1) / 240.f) {
+            if(this->channel2.envelope_decay_counter == 0) {
+                if(this->channel2.loop) this->channel2.envelope_decay_counter = 0xf;
+            } else this->channel2.envelope_decay_counter--;
+            pending_envelope_ticks -= (this->channel2.envelope_level + 1) / 240.f;
+        }
     }
 }
 
@@ -125,21 +155,24 @@ void *timer_cb(void *_) {
     uint8_t channel2_divider_period = 1;
     while (1) {
         usleep(this->long_sequence ? 5208 : 4166);
+        if (!this->channel1.loop && this->channel1.length_counter > 0) {
+            this->channel1.length_counter--;
+        }
+        if (!this->channel2.loop && this->channel2.length_counter > 0) {
+            this->channel2.length_counter--;
+        }
+        if (!this->channel3.length_counter_halt &&
+            this->channel3.length_counter > 0) {
+            this->channel3.length_counter--;
+        }
         if (counter % 2 == 0) {
-            if (!this->channel1.loop && this->channel1.length_counter > 0)
-                this->channel1.length_counter--;
-            if (!this->channel2.loop && this->channel2.length_counter > 0)
-                this->channel2.length_counter--;
-            if (!this->channel3.length_counter_halt && this->channel3.length_counter > 0)
-                this->channel3.length_counter--;
-            if(this->channel3.linear_counter != 0)
-                this->channel3.linear_counter--;
-            if(!this->channel4.loop && this->channel4.length_counter > 0)
+            if (!this->channel4.loop && this->channel4.length_counter > 0) {
                 this->channel4.length_counter--;
+            }
 
             if (--channel1_divider_period == 0) {
                 channel1_divider_period = this->channel1.sweep_speed + 1;
-                if (this->channel1.sweep_enable && this->channel1.timer >= 8) {
+                if (this->channel1.sweep_enable && this->channel1.timer >= 8 && this->channel1.sweep_shift_count != 0) {
                     int16_t offset = this->channel1.timer >>
                                      this->channel1.sweep_shift_count;
                     if (this->channel1.sweep_negate) {
@@ -148,13 +181,13 @@ void *timer_cb(void *_) {
                         this->channel1.timer += offset;
                     }
                     this->channel1.frequency =
-                        1790000.f / (16.f * (this->channel1.timer + 1));
+                        CPU_FREQ / (16.f * (this->channel1.timer + 1));
                 }
             }
 
             if (--channel2_divider_period == 0) {
                 channel2_divider_period = this->channel2.sweep_speed + 1;
-                if (this->channel2.sweep_enable && this->channel2.timer >= 8) {
+                if (this->channel2.sweep_enable && this->channel2.timer >= 8 && this->channel2.sweep_shift_count != 0) {
                     int16_t offset = this->channel2.timer >>
                                      this->channel2.sweep_shift_count;
                     if (this->channel2.sweep_negate) {
@@ -163,30 +196,19 @@ void *timer_cb(void *_) {
                         this->channel2.timer += offset;
                     }
                     this->channel2.frequency =
-                        1790000.f / (16.f * (this->channel2.timer + 1));
+                        CPU_FREQ / (16.f * (this->channel2.timer + 1));
                 }
             }
         }
 
-        if (counter % (this->channel1.volume_level_speed + 1) == 0) {
-            if (!this->channel1.constant_volume) {
-                if (this->channel1.volume_level != 0)
-                    this->channel1.volume_level--;
-                if (this->channel1.volume_level == 0 && this->channel1.loop) {
-                    this->channel1.volume_level = 15;
-                }
-            }
+        if (counter % 4 == 0 && !this->long_sequence &&
+            !this->interrupt_inhibit) {
+            get_cpu_handle()->irq = true;
         }
 
-        if (counter % (this->channel2.volume_level_speed + 1) == 0) {
-            if (!this->channel2.constant_volume) {
-                if (this->channel2.volume_level != 0)
-                    this->channel2.volume_level--;
-                if (this->channel2.volume_level == 0 && this->channel2.loop) {
-                    this->channel2.volume_level = 15;
-                }
-            }
-        }
+        if (this->channel3.linear_counter > 0)
+            this->channel3.linear_counter--;
+
         counter++;
     }
 
@@ -199,7 +221,7 @@ void apu_init(apu_t *apu) {
     this->channel4.lfsr = 1;
     this->channel4.timer_period = noise_timer_lookup[0];
     InitAudioDevice();
-    SetAudioStreamBufferSizeDefault(1024);
+    SetAudioStreamBufferSizeDefault(512);
     this->channel1.stream = LoadAudioStream(SAMPLE_RATE, 16, 1);
     SetAudioStreamCallback(this->channel1.stream, square1_callback);
     PlayAudioStream(this->channel1.stream);
@@ -220,9 +242,9 @@ void apu_init(apu_t *apu) {
 
 uint8_t apu_status_read(void) {
     return ((this->channel1.length_counter > 0) << 0) |
-    ((this->channel2.length_counter > 0) << 1) |
-    ((this->channel3.length_counter > 0) << 2) |
-    ((this->channel4.length_counter > 0) << 3);
+           ((this->channel2.length_counter > 0) << 1) |
+           ((this->channel3.length_counter > 0) << 2) |
+           ((this->channel4.length_counter > 0) << 3);
 }
 
 void apu_status_write(uint8_t value) {
@@ -239,22 +261,23 @@ void pulse_1_config(uint8_t value) {
     this->channel1.duty = value >> 6;
     this->channel1.loop = (value & 0x20) != 0;
     this->channel1.constant_volume = (value & 0x10) != 0;
-    this->channel1.volume_level_speed = value & 0xf;
+    this->channel1.envelope_level = value & 0xf;
 }
 
 void pulse_1_timer_low(uint8_t value) {
     this->channel1.timer &= 0xff00;
     this->channel1.timer |= value;
-    this->channel1.frequency = 1790000.f / (16.f * (this->channel1.timer + 1));
+    this->channel1.frequency = CPU_FREQ / (16.f * (this->channel1.timer + 1));
 }
 
 void pulse_1_timer_high(uint8_t value) {
     this->channel1.timer &= 0xff;
     this->channel1.timer |= (value & 0x7) << 8;
-    this->channel1.frequency = 1790000.f / (16.f * (this->channel1.timer + 1));
+    this->channel1.frequency = CPU_FREQ / (16.f * (this->channel1.timer + 1));
     if (this->channel1.enable) {
         this->channel1.length_counter = length_timer_lookup[value >> 3];
     }
+    this->channel1.envelope_decay_counter = 0xf;
 }
 
 void pulse_1_sweep(uint8_t value) {
@@ -268,22 +291,23 @@ void pulse_2_config(uint8_t value) {
     this->channel2.duty = value >> 6;
     this->channel2.loop = (value & 0x20) != 0;
     this->channel2.constant_volume = (value & 0x10) != 0;
-    this->channel2.volume_level_speed = value & 0xf;
+    this->channel2.envelope_level = value & 0xf;
 }
 
 void pulse_2_timer_low(uint8_t value) {
     this->channel2.timer &= 0xff00;
     this->channel2.timer |= value;
-    this->channel2.frequency = 1790000.f / (16.f * (this->channel2.timer + 1));
+    this->channel2.frequency = CPU_FREQ / (16.f * (this->channel2.timer + 1));
 }
 
 void pulse_2_timer_high(uint8_t value) {
     this->channel2.timer &= 0xff;
     this->channel2.timer |= (value & 0x7) << 8;
-    this->channel2.frequency = 1790000.f / (16.f * (this->channel2.timer + 1));
+    this->channel2.frequency = CPU_FREQ / (16.f * (this->channel2.timer + 1));
     if (this->channel2.enable) {
         this->channel2.length_counter = length_timer_lookup[value >> 3];
     }
+    this->channel2.envelope_decay_counter = 0xf;
 }
 
 void pulse_2_sweep(uint8_t value) {
@@ -301,13 +325,13 @@ void triangle_linear_counter(uint8_t value) {
 void triangle_timer_low(uint8_t value) {
     this->channel3.timer &= 0xff00;
     this->channel3.timer |= value;
-    this->channel3.frequency = 1790000.f / (32.f * (this->channel3.timer + 1));
+    this->channel3.frequency = CPU_FREQ / (32.f * (this->channel3.timer + 1));
 }
 
 void triangle_timer_high(uint8_t value) {
     this->channel3.timer &= 0xff;
     this->channel3.timer |= (value & 0x7) << 8;
-    this->channel3.frequency = 1790000.f / (32.f * (this->channel3.timer + 1));
+    this->channel3.frequency = CPU_FREQ / (32.f * (this->channel3.timer + 1));
     if (this->channel3.enable) {
         this->channel3.length_counter = length_timer_lookup[value >> 3];
     }
@@ -316,7 +340,10 @@ void triangle_timer_high(uint8_t value) {
 void noise_config(uint8_t value) {
     this->channel4.loop = (value & 0x20) != 0;
     this->channel4.constant_volume = (value & 0x10) != 0;
-    this->channel4.volume_level_speed = value & 0xf;
+    if (this->channel4.constant_volume)
+        this->channel4.volume_level = value & 0xf;
+    else
+        this->channel4.volume_level_speed = value & 0xf;
 }
 
 void noise_period(uint8_t value) {

@@ -340,7 +340,7 @@ static void execute(uint8_t opcode) {
         lsr(ZEROPAGEX);
         break;
     case 0x58:
-        set_status_bit(I, false);
+        this->i_clear_pending = true;
         break;
     case 0x59:
         eor(ABSY);
@@ -401,7 +401,7 @@ static void execute(uint8_t opcode) {
         ror(ZEROPAGEX);
         break;
     case 0x78:
-        set_status_bit(I, true);
+        this->i_set_pending = true;
         break;
     case 0x79:
         adc(ABSY);
@@ -661,27 +661,30 @@ static void execute(uint8_t opcode) {
 static void run(void) {
     this->p = 0x24;
     this->sp = 0xfd;
+    bool clear_on_next = false;
+    bool set_on_next = false;
     while (1) {
-        if (this->elapsed_cycles % this->apu->channel4.timer_period == 0) {
-            bool feedback = (this->apu->channel4.lfsr & 1) ^
-                            ((this->apu->channel4.lfsr &
-                              (this->apu->channel4.mode ? 0x40 : 0x2)) != 0);
-            this->apu->channel4.lfsr >>= 1;
-            this->apu->channel4.lfsr &= ~0b100000000000000;
-            this->apu->channel4.lfsr |= feedback << 14;
-        }
-
         if (this->step || this->run) {
             this->step = false;
 
             uint8_t opcode = read_next_byte();
-            this->prev_pc[this->prev_inst_idx] = this->pc-1;
-            this->prev_bank[this->prev_inst_idx] = this->cpu_addr_to_bank_callback(this->pc-1);
+            this->prev_pc[this->prev_inst_idx] = this->pc - 1;
+            this->prev_bank[this->prev_inst_idx] =
+                this->cpu_addr_to_bank_callback(this->pc - 1);
             this->prev_inst[this->prev_inst_idx++] = opcode;
             this->prev_inst_idx %= 0x1000;
             execute(opcode);
             this->remaining_cycles -= cycle_lookup[opcode];
             this->elapsed_cycles += cycle_lookup[opcode];
+
+            if (clear_on_next) {
+                this->i_clear_pending = false;
+                set_status_bit(I, false);
+            }
+            if (set_on_next) {
+                this->i_set_pending = false;
+                set_status_bit(I, true);
+            }
 
             if (this->ppu->enable_vblank_nmi && this->ppu->vblank) {
                 this->ppu->vblank = false;
@@ -689,12 +692,33 @@ static void run(void) {
                 push(this->p & ~(0x10));
                 set_status_bit(I, true);
                 this->pc = read_16le(0xfffa);
-            } else if(this->irq && !get_status_bit(I)) {
-                this->irq = false;
+                this->remaining_cycles -= 7;
+                this->elapsed_cycles += 7;
+
+                this->prev_pc[this->prev_inst_idx] = 1;
+                this->prev_bank[this->prev_inst_idx] = 1;
+                this->prev_inst[this->prev_inst_idx++] = 1;
+            } else if (!get_status_bit(I) && this->irq) {
                 push_16le(this->pc);
-                push(this->p & ~(0x10));
+                push(((this->p & ~(0x10)) | (this->i_set_pending << 2)) & ~(this->i_clear_pending << 2));
                 set_status_bit(I, true);
                 this->pc = read_16le(0xfffe);
+                this->remaining_cycles -= 7;
+                this->elapsed_cycles += 7;
+
+                this->prev_pc[this->prev_inst_idx] = 0;
+                this->prev_bank[this->prev_inst_idx] = 0;
+                this->prev_inst[this->prev_inst_idx++] = 0;
+            }
+
+            set_on_next = false;
+            clear_on_next = false;
+
+            if (this->i_clear_pending) {
+                clear_on_next = true;
+            }
+            if (this->i_set_pending) {
+                set_on_next = true;
             }
 
             if (this->pc == this->run_until) {
@@ -930,7 +954,7 @@ void asl(addressing_mode mode) {
     write_8(addr, operand * 2);
     set_status_bit(C, (operand & 0x80) != 0);
     set_status_bit(N, (operand & 0x40) != 0);
-    set_status_bit(Z, operand / 2 == 0);
+    set_status_bit(Z, (operand * 2) % 0x100 == 0);
 }
 
 void asl_a(void) {

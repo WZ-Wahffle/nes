@@ -155,8 +155,7 @@ void m001_ppu_write(uint16_t addr, uint8_t value) {
         } else {
             chr_rom[(chr_bank_0 & ~0) * 0x2000 + (addr % 0x2000)] = value;
         }
-    }
-    if (addr >= 0x2000 && addr < 0x3000) {
+    } else if (addr >= 0x2000 && addr < 0x3000) {
         switch (mirroring) {
         case ONE_LOWER:
             vram[(addr - 0x2000) % 0x400] = value;
